@@ -1,4 +1,4 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml } from './report.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -6,6 +6,8 @@ let isDemo = false, previewPages = { old: 1, new: 1 }, previewCache = new Map();
 let selectedId = null, contentScroll = 0, contentSelectedId = null;
 let contentPositionSaved = false;
 let previewLocations = { old: [], new: [] }, previewData = { old: null, new: null };
+let selectedMemoId = null, memoScroll = 0, memoEntryId = null;
+const activeFocusId = () => selectedMemoId ?? selectedId;
 function updateFiles() {
   for (const side of ['old', 'new']) {
     const file = files[side];
@@ -20,6 +22,7 @@ function clearResults() {
   result = null; previewCache.clear(); previewPages = { old: 1, new: 1 };
   selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files');
   contentPositionSaved = false;
+  selectedMemoId = null; memoScroll = 0; memoEntryId = null;
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-canvas`).hidden = true; $(`#${side}-overlays`).replaceChildren(); }
@@ -52,7 +55,7 @@ $('#reset').addEventListener('click', () => {
 
 function setBusy(busy, preview = false) {
   for (const id of ['demo', 'swap', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change', 'preview-change']) $(`#${id}`).disabled = busy;
-  document.querySelectorAll('[data-preview-diff]').forEach(b => { b.disabled = busy; });
+  document.querySelectorAll('[data-preview-diff], [data-preview-memo], #preview-memo').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-filter], #search').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
   $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '렌더링 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
@@ -91,7 +94,12 @@ function showResults() {
   const memoChanges = memoStats ? memoStats.added + memoStats.removed + memoStats.modified : 0;
   $('#result-title').textContent = memoChanges ? `본문 변경 ${total}개 · 메모 변경 ${memoChanges}개` : total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
-  $('#memo-panel').innerHTML = annotationsHtml(result.annotations);
+  $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
+  const memos = result.annotations?.diffs ?? [];
+  $('#preview-memo').innerHTML = '<option value="">메모 선택</option>' + memos.map((m, i) => `<option value="${escapeHtml(m.id)}">메모 ${i + 1} · ${labels[m.type]} · ${escapeHtml((m.after ?? m.before).text.slice(0, 45))}</option>`).join('');
+  $('#preview-memo-control').hidden = !memos.length;
+  $('#return-memos').hidden = !memos.length;
+  $('#preview-body-control').hidden = !total; $('#preview-jump').hidden = !total;
   $('#stats').innerHTML = Object.entries(labels).map(([type, label]) => `<div class="stat ${type}"><span>${label}</span><strong>${result.stats[type]}<small>개 블록</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
@@ -120,7 +128,7 @@ function renderList() {
   const priorSelection = selectedId; updateNavigator();
   if (!$('#preview-panel').hidden) {
     showSelectedDetail(); for (const side of ['old', 'new']) drawOverlays(side);
-    if (selectedId && priorSelection !== selectedId) jumpToDiff(selectedId);
+    if (!selectedMemoId && selectedId && priorSelection !== selectedId) jumpToDiff(selectedId);
   }
 }
 
@@ -181,13 +189,18 @@ function setView(preview) {
   const wasPreview = !$('#preview-panel').hidden;
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
   $('#content-panel').hidden = preview || memoView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView;
-  $('.results-toolbar').hidden = memoView; $('.change-navigator').hidden = memoView;
+  const memoOnlyPreview = preview && result && !result.diffs.some(d => d.type !== 'unchanged');
+  $('.results-toolbar').hidden = memoView || memoOnlyPreview; $('.change-navigator').hidden = memoView || memoOnlyPreview;
   for (const [id, active] of [['view-content', !preview && !memoView], ['view-preview', preview], ['view-memos', memoView]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
   if (!preview && !memoView && wasPreview && result) requestAnimationFrame(() => {
     if (selectedId === contentSelectedId) window.scrollTo({ top: contentScroll });
     else $(`#change-${selectedId}`)?.scrollIntoView({ block: 'start' });
+  });
+  if (memoView && wasPreview && result) requestAnimationFrame(() => {
+    if (memoEntryId === selectedMemoId) window.scrollTo({ top: memoScroll });
+    else $(`#${selectedMemoId}`)?.scrollIntoView({ block: 'start' });
   });
 }
 function updatePageButtons() {
@@ -198,7 +211,7 @@ function updatePageButtons() {
   }
 }
 async function loadPreview(side, page, jump = false) {
-  const location = previewLocations[side].find(l => l.id === selectedId);
+  const location = previewLocations[side].find(l => l.id === activeFocusId());
   if (jump && location?.boxes.length) page = location.boxes[0].page;
   const key = `${side}:${page}`;
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
@@ -209,7 +222,7 @@ async function loadPreview(side, page, jump = false) {
     if (!data) {
       const form = new FormData(); form.append('page', String(page));
       form.append('targets', JSON.stringify(previewTargets(result, side)));
-      if (selectedId) form.append('focusId', String(selectedId));
+      if (activeFocusId()) form.append('focusId', String(activeFocusId()));
       if (jump) form.append('jump', '1');
       if (isDemo) { form.append('demo', '1'); form.append('side', side); }
       else form.append('file', files[side]);
@@ -225,7 +238,7 @@ async function loadPreview(side, page, jump = false) {
     $(`#${side}-page`).innerHTML = Array.from({ length: data.totalPages }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
-    const focused = data.locations?.find(l => l.id === selectedId);
+    const focused = data.locations?.find(l => l.id === activeFocusId());
     $(`#${side}-preview-warnings`).innerHTML = `${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
     drawOverlays(side);
     await img.decode().catch(() => {});
@@ -251,6 +264,7 @@ function jumpToDiff(id) {
   if (controller) return;
   const diff = result?.diffs.find(d => d.id === Number(id));
   if (!diff) return showPreview();
+  selectedMemoId = null; $('#preview-memo').value = '';
   if (!$('#content-panel').hidden && selectedId !== diff.id) { selectedId = diff.id; rememberContentPosition(); }
   selectedId = diff.id; updateNavigator();
   const pages = {};
@@ -261,9 +275,22 @@ function jumpToDiff(id) {
   $('#preview-change').value = String(id);
   showPreview(pages, '변경 항목을 원문에서 찾아 이동합니다. 위치를 찾지 못한 경우 각 문서 아래에 안내합니다.', true);
 }
-$('#view-content').addEventListener('click', () => setView(false));
+function jumpToMemo(id) {
+  if (!result || controller || !result.annotations?.diffs.some(m => m.id === id)) return;
+  if (!$('#memo-panel').hidden) { memoScroll = window.scrollY; memoEntryId = id; }
+  selectedMemoId = id; $('#preview-memo').value = id;
+  showPreview({ ...previewPages }, '보라색은 메모가 연결된 문단입니다. 선택한 메모로 이동하며, 일부만 확인된 범위는 문서 아래에 안내합니다.', true);
+}
+$('#view-content').addEventListener('click', () => { selectedMemoId = null; setView(false); });
 $('#view-memos').addEventListener('click', () => setView('memos'));
-$('#view-preview').addEventListener('click', () => selectedId ? jumpToDiff(selectedId) : showPreview());
+$('#view-preview').addEventListener('click', () => {
+  const firstMemo = result?.annotations?.diffs?.[0]?.id;
+  if (selectedMemoId || (!$('#memo-panel').hidden && firstMemo) || (!selectedId && firstMemo)) jumpToMemo(selectedMemoId ?? firstMemo);
+  else selectedId ? jumpToDiff(selectedId) : showPreview();
+});
+$('#preview-memo').addEventListener('change', event => jumpToMemo(event.target.value));
+$('#return-memos').addEventListener('click', () => setView('memos'));
+$('#memo-panel').addEventListener('click', event => { const button = event.target.closest('[data-preview-memo]'); if (button) jumpToMemo(button.dataset.previewMemo); });
 $('#preview-jump').addEventListener('click', () => jumpToDiff($('#preview-change').value));
 $('#preview-change').addEventListener('change', event => jumpToDiff(event.target.value));
 $('#diff-list').addEventListener('click', event => { const button = event.target.closest('[data-preview-diff]'); if (button) jumpToDiff(button.dataset.previewDiff); });
@@ -275,6 +302,13 @@ for (const side of ['old', 'new']) {
 }
 
 function showSelectedDetail() {
+  if (selectedMemoId) {
+    const memos = result?.annotations?.diffs ?? [], index = memos.findIndex(m => m.id === selectedMemoId);
+    $('#selection-title').textContent = `선택한 메모 ${index + 1}`;
+    $('#selected-change-detail').innerHTML = index >= 0 ? memoCardHtml(memos[index], index + 1, false, 'selected-') : '';
+    return;
+  }
+  $('#selection-title').textContent = '선택한 변경';
   const diff = result?.diffs.find(d => d.id === selectedId);
   $('#selected-change-detail').innerHTML = diff
     ? renderDiff(diff, result.documents).replace(`id="change-${diff.id}"`, `id="selected-${diff.id}"`)
@@ -284,21 +318,23 @@ function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
   svg.replaceChildren(); if (!data) return;
   svg.setAttribute('viewBox', `0 0 ${data.width} ${data.height}`);
-  const visibleIds = new Set(filteredDiffs().map(d => d.id));
+  const visibleIds = new Set([...filteredDiffs().map(d => d.id), ...(result?.annotations?.diffs ?? []).map(m => m.id)]);
   for (const location of (data.locations ?? []).filter(l => visibleIds.has(l.id))) for (const box of location.boxes.filter(b => b.page === data.page)) {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     for (const prop of ['x', 'y', 'width', 'height']) rect.setAttribute(prop, String(box[prop]));
-    rect.setAttribute('class', `region-box ${location.type}${location.id === selectedId ? ' selected-region' : ''}`);
+    const isMemo = location.category === 'memo';
+    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
     rect.setAttribute('data-change-id', String(location.id)); rect.setAttribute('tabindex', '0'); rect.setAttribute('role', 'button');
-    rect.setAttribute('aria-label', `${labels[location.type]} 항목 ${location.id} 선택`);
-    rect.addEventListener('click', () => jumpToDiff(location.id));
-    rect.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); jumpToDiff(location.id); } });
+    rect.setAttribute('aria-label', isMemo ? `메모 ${String(location.id).slice(5)} 선택` : `${labels[location.type]} 항목 ${location.id} 선택`);
+    const select = () => isMemo ? jumpToMemo(location.id) : jumpToDiff(location.id);
+    rect.addEventListener('click', select);
+    rect.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
     svg.append(rect);
   }
 }
 function scrollToRegion(side) {
   const data = previewData[side], viewport = $(`#${side}-viewport`), canvas = $(`#${side}-canvas`);
-  const box = data?.locations.find(l => l.id === selectedId)?.boxes.find(b => b.page === data.page);
+  const box = data?.locations.find(l => l.id === activeFocusId())?.boxes.find(b => b.page === data.page);
   if (!box) return;
   const scale = canvas.getBoundingClientRect().width / data.width;
   viewport.scrollTo({ top: Math.max(0, box.y * scale - 65), left: Math.max(0, box.x * scale - 35), behavior: 'instant' });

@@ -6,6 +6,7 @@ import { createServer } from '../src/server.mjs';
 import { sampleFiles } from '../src/sample-data.mjs';
 import { compareDocuments } from '../src/engine.mjs';
 import { previewTargets } from '../public/report.js';
+import { memoFixture } from './helpers/memo-fixture.mjs';
 
 let server, base, files;
 before(async () => {
@@ -54,6 +55,16 @@ test('preview API carries changed-cell geometry and rejects malformed target lis
   assert.equal((await response.json()).locations.find(l => l.id === 6).boxes.length, 3);
   f.set('targets', '{bad json'); assert.equal((await post('/api/preview', f)).status, 400);
   f.set('targets', '[{"id":1,"type":"image"}]'); assert.equal((await post('/api/preview', f)).status, 400);
+});
+
+test('preview API accepts memo identifiers, navigates to the memo and rejects invalid IDs', async () => {
+  const docs = await memoFixture(80, 70), result = await compareDocuments(...docs);
+  const f = new FormData(); f.append('file', new Blob([docs[1].bytes]), docs[1].name);
+  f.append('targets', JSON.stringify(previewTargets(result, 'new'))); f.append('focusId', 'memo-1'); f.append('jump', '1');
+  const res = await post('/api/preview', f); assert.equal(res.status, 200);
+  const data = await res.json(); assert.ok(data.page > 1); assert.equal(data.locations[0].status, 'memo');
+  f.set('targets', JSON.stringify([{ id: 'memo-<script>', category: 'memo', type: 'added', memo: null }]));
+  assert.equal((await post('/api/preview', f)).status, 400);
 });
 test('missing files, unsupported extension, corrupt bytes and oversize request are rejected', async () => {
   assert.equal((await post('/api/compare', new FormData())).status, 400);

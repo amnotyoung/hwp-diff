@@ -22,6 +22,7 @@ export async function readHwpxMemos(bytes) {
     .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
   if (!names.length) throw new Error('본문 구역을 찾을 수 없습니다.');
   const records = [];
+  const parts = new WeakMap();
   let totalBytes = 0;
   for (const name of names) {
     const data = await zip.file(name).async('uint8array');
@@ -47,18 +48,27 @@ export async function readHwpxMemos(bytes) {
           context: paragraph ? bodyText(paragraph).trim().slice(0, 240) : '',
           section: name, row: address ? Number(address.getAttribute('rowAddr')) + 1 : null,
           col: address ? Number(address.getAttribute('colAddr')) + 1 : null,
+          tableSourceId: ancestor(node, 'tbl')?.getAttribute('id') || null,
         };
-        records.push(record); active.set(node.getAttribute('id'), record);
+        records.push(record); parts.set(record, new Map()); active.set(node.getAttribute('id'), record);
         return; // Memo text must not become the anchor text of another memo.
       }
       if (local(node) === 'fieldEnd') { active.delete(node.getAttribute('beginIDRef')); return; }
-      if (local(node) === 't') for (const record of active.values()) record.anchorText += node.textContent;
+      if (local(node) === 't') for (const record of active.values()) {
+        record.anchorText += node.textContent;
+        const paragraph = ancestor(node, 'p');
+        if (paragraph) {
+          const grouped = parts.get(record);
+          if (!grouped.has(paragraph)) grouped.set(paragraph, { text: '', context: bodyText(paragraph).trim(), tableSourceId: ancestor(node, 'tbl')?.getAttribute('id') || null });
+          grouped.get(paragraph).text += node.textContent;
+        }
+      }
       for (const child of children(node)) visit(child);
     }
     visit(doc.documentElement);
     if (active.size) throw new Error('메모의 연결 끝 위치를 찾지 못했습니다.');
   }
-  return records.map(r => ({ ...r, anchorText: r.anchorText.trim() }));
+  return records.map(r => ({ ...r, anchorText: r.anchorText.trim(), anchorParts: [...parts.get(r).values()].map(p => ({ ...p, text: p.text.trim() })).filter(p => p.text) }));
 }
 
 export function compareMemos(before, after) {

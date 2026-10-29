@@ -1,20 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { markdownToHwpx } from 'kordoc';
 import { readHwpxMemos, compareMemos, compareAnnotations } from '../src/annotations.mjs';
 import { compareDocuments } from '../src/engine.mjs';
 import { annotationsHtml, exportHtml } from '../public/report.js';
 
-const memoXml = (id, text) => `<hp:ctrl><hp:fieldBegin id="${id}" type="MEMO"><hp:parameters><hp:stringParam name="ID">memo${id}</hp:stringParam><hp:stringParam name="Author">검토자</hp:stringParam><hp:stringParam name="CreateDateTime">2026-10-29T01:00:00Z</hp:stringParam></hp:parameters><hp:subList><hp:p><hp:run><hp:t>${text}</hp:t></hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl>`;
-async function fixture() {
-  const oldBytes = new Uint8Array(await markdownToHwpx('# 검토용 문서\n\n검토 문장입니다.'));
-  const zip = await JSZip.loadAsync(oldBytes);
-  const section = await zip.file('Contents/section0.xml').async('string');
-  assert.ok(section.includes('<hp:t>검토 문장입니다.</hp:t>'));
-  zip.file('Contents/section0.xml', section.replace('<hp:t>검토 문장입니다.</hp:t>', `${memoXml('123', '근거 자료를 추가해 주세요.')}<hp:t>검토 문장입니다.</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="123"/></hp:ctrl>`));
-  return [{ name: 'old.hwpx', bytes: oldBytes }, { name: 'new.hwpx', bytes: await zip.generateAsync({ type: 'uint8array' }) }];
-}
+import { memoFixture as fixture } from './helpers/memo-fixture.mjs';
 
 test('HWPX memo body, author, timestamp and associated text are extracted separately', async () => {
   const [, file] = await fixture(); const notes = await readHwpxMemos(file.bytes);

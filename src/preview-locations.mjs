@@ -64,6 +64,27 @@ export function locateChanges(scene, pageSvgs, targets) {
     }
     return cursor === paragraphs.length ? mapped : null;
   }
+  function findMemoParts(memo) {
+    const parts = memo.anchorParts?.length ? memo.anchorParts : [{ text: memo.anchorText || memo.context, context: memo.context, tableSourceId: memo.tableSourceId }];
+    const found = new Map(); let missing = 0;
+    for (const part of parts) {
+      let candidates = regions.filter(r => r.type === 'paragraph' && normalize(r.text));
+      if (part.tableSourceId) candidates = candidates.filter(r => {
+        for (let p = byId.get(r.parentId); p; p = byId.get(p.parentId)) if (p.type === 'table' && p.sourceId === part.tableSourceId) return true;
+        return false;
+      });
+      const context = normalize(part.context), needle = normalize(part.text);
+      // Use the full containing paragraph first, scoped to the source table.
+      // This avoids jumping to the first occurrence of a short repeated label.
+      let matches = context ? candidates.filter(r => normalize(r.text) === context) : [];
+      if (!matches.length && context.length >= 8) matches = candidates.filter(r => normalize(r.text).includes(context));
+      if (!matches.length && needle) matches = candidates.filter(r => normalize(r.text) === needle);
+      if (!matches.length && needle.length >= 8) matches = candidates.filter(r => normalize(r.text).includes(needle));
+      if (matches.length === 1) found.set(matches[0].id, matches[0]);
+      else missing++;
+    }
+    return { found: [...found.values()], missing };
+  }
   const boxes = list => list.flatMap(r => r.regions).filter(b => {
     const page = scene.pages.find(p => p.page === b.page);
     return page && [b.x, b.y, b.width, b.height].every(Number.isFinite) && b.width > 0 && b.height > 0 && b.y < page.height && b.x < page.width;
@@ -74,6 +95,16 @@ export function locateChanges(scene, pageSvgs, targets) {
   }).filter(b => b.width > 0 && b.height > 0);
   return targets.map(target => {
     const base = { id: target.id, type: target.type };
+    if (target.category === 'memo') {
+      const memoBase = { ...base, category: 'memo' };
+      if (!target.memo) return { ...memoBase, boxes: [], status: 'absent', message: '이 버전에는 해당 메모가 없습니다.' };
+      const { found, missing } = findMemoParts(target.memo);
+      const located = boxes(found).sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+      return { ...memoBase, boxes: located, status: !located.length ? 'unresolved' : missing ? 'partial' : 'memo', message: !located.length
+        ? '메모가 연결된 위치를 정확히 찾지 못했습니다. 옆의 연결 문구와 원본을 확인해 주세요.'
+        : missing ? '메모가 연결된 문단 중 위치를 확인한 부분만 표시했습니다. 전체 연결 문구는 옆에서 확인해 주세요.'
+        : '메모가 연결된 문단을 보라색으로 표시했습니다.' };
+    }
     if (!target.block) return { ...base, boxes: [], status: 'absent', message: '이 버전에는 해당 내용이 없습니다.' };
     const region = findRegion(target);
     if (!region) return { ...base, boxes: [], status: 'unresolved', message: '정확한 위치를 찾지 못했습니다. 옆의 변경 문구와 원본을 함께 확인해 주세요.' };

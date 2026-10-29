@@ -12,11 +12,13 @@ export function fileLabel(name, limit = 42) {
 
 export function previewTargets(result, side) {
   const old = side === 'old';
-  return result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
+  const body = result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
     id: d.id, type: d.type, block: old ? d.before : d.after,
     anchor: old ? d.oldAnchor : d.newAnchor,
     cells: d.cells.map(c => ({ row: c.row, col: c.col })),
   }));
+  const memos = (result.annotations?.diffs ?? []).map(d => ({ id: d.id, category: 'memo', type: d.type, memo: old ? d.before : d.after }));
+  return [...body, ...memos];
 }
 
 // Exact character diff for the changed region; bound quadratic work for long paragraphs.
@@ -122,20 +124,24 @@ export function warningsHtml(result) {
   return note + (result.warnings.length ? `<details class="parse-warning"><summary>일부 내용을 읽지 못했을 수 있습니다 · ${result.warnings.length}건</summary><p>해당 부분은 원본 문서에서 확인해 주세요.</p><details><summary>기술 정보</summary><ul>${result.warnings.map(w => `<li>${escapeHtml(w.document)} · ${escapeHtml(w.code)}: ${escapeHtml(w.message)}</li>`).join('')}</ul></details></details>` : '');
 }
 
-export function annotationsHtml(annotations) {
+export function memoCardHtml(d, number, navigation = false, prefix = '') {
+  const memo = d.after ?? d.before;
+  return `<article class="memo-card" id="${escapeHtml(prefix + d.id)}"><div class="diff-heading"><span class="type-badge ${d.type}">메모 ${labels[d.type]}</span><strong>메모 ${number}</strong>${navigation ? `<button class="memo-location-button" data-preview-memo="${escapeHtml(d.id)}" aria-label="메모 ${number} 원문 위치 보기">원문 위치 보기 ↗</button>` : ''}</div>
+    <p class="memo-context"><strong>연결된 내용:</strong> ${escapeHtml(memo.anchorText || memo.context || '연결 문구를 확인하지 못했습니다.')}</p>${d.type === 'modified' && d.before.text === d.after.text ? '<p class="memo-context">메모 내용은 같고 작성자 또는 연결된 위치 정보가 달라졌습니다.</p>' : ''}
+    <div class="diff-columns">${['before', 'after'].map(side => {
+      const value = d[side];
+      return `<section class="${side}"><p class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</p>${value ? `<p class="memo-meta">작성자: ${escapeHtml(value.author || '정보 없음')}${value.createdAt ? ` · 작성 시각: ${escapeHtml(value.createdAt)}` : ''}</p><div class="memo-text">${highlight(d.before?.text ?? '', d.after?.text ?? '')[side]}</div>` : '<p class="empty-block">메모 없음</p>'}</section>`;
+    }).join('')}</div></article>`;
+}
+
+export function annotationsHtml(annotations, navigation = false) {
   if (!annotations?.available) return `<p class="parse-warning">${escapeHtml(annotations?.message ?? '이 결과에는 메모 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
   const { stats, diffs, counts } = annotations;
   const changes = diffs.filter(d => d.type !== 'unchanged');
-  return `<section class="memo-results"><h2>메모 변경 ${changes.length}개</h2><p>구버전 메모 ${counts.before}개 → 신버전 메모 ${counts.after}개 · 추가 ${stats.added} / 삭제 ${stats.removed} / 수정 ${stats.modified} / 동일 ${stats.unchanged}</p><p class="memo-scope">검토 메모는 본문과 별도로 비교합니다. 원본 미리보기에는 한컴의 메모 풍선을 재현하지 않습니다.</p>
-    ${changes.length ? changes.map((d, i) => {
-      const memo = d.after ?? d.before;
-      return `<article class="memo-card" id="${escapeHtml(d.id)}"><div class="diff-heading"><span class="type-badge ${d.type}">메모 ${labels[d.type]}</span><strong>메모 ${i + 1}</strong></div>
-      <p class="memo-context"><strong>연결된 내용:</strong> ${escapeHtml(memo.anchorText || memo.context || '연결 문구를 확인하지 못했습니다.')}</p>${d.type === 'modified' && d.before.text === d.after.text ? '<p class="memo-context">메모 내용은 같고 작성자 또는 연결된 위치 정보가 달라졌습니다.</p>' : ''}
-      <div class="diff-columns">${['before', 'after'].map(side => {
-        const value = d[side];
-        return `<section class="${side}"><p class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</p>${value ? `<p class="memo-meta">작성자: ${escapeHtml(value.author || '정보 없음')}${value.createdAt ? ` · 작성 시각: ${escapeHtml(value.createdAt)}` : ''}</p><div class="memo-text">${highlight(d.before?.text ?? '', d.after?.text ?? '')[side]}</div>` : '<p class="empty-block">메모 없음</p>'}</section>`;
-      }).join('')}</div></article>`;
-    }).join('') : '<p class="no-results">메모의 추가·삭제·수정이 없습니다.</p>'}</section>`;
+  const card = d => memoCardHtml(d, diffs.indexOf(d) + 1, navigation);
+  return `<section class="memo-results"><h2>메모 변경 ${changes.length}개</h2><p>구버전 메모 ${counts.before}개 → 신버전 메모 ${counts.after}개 · 추가 ${stats.added} / 삭제 ${stats.removed} / 수정 ${stats.modified} / 동일 ${stats.unchanged}</p><p class="memo-scope">검토 메모는 본문과 별도로 비교합니다.${navigation ? ' 원문 위치 보기를 누르면 연결된 문단으로 이동합니다. 원본에서는 보라색 표시로 확인할 수 있습니다.' : ''} 한컴의 메모 풍선 모양 자체는 재현하지 않습니다.</p>
+    ${changes.length ? changes.map(card).join('') : '<p class="no-results">메모의 추가·삭제·수정이 없습니다.</p>'}
+    ${stats.unchanged ? `<details class="unchanged-memos"><summary>동일한 메모 ${stats.unchanged}개 보기</summary>${diffs.filter(d => d.type === 'unchanged').map(card).join('')}</details>` : ''}</section>`;
 }
 
 export function exportHtml(result) {
