@@ -142,7 +142,7 @@ export function renderBlock(block, other, side, focus = false, query = '') {
     const t = block.table;
     const changedShape = other?.table && (t.rows !== other.table.rows || t.cols !== other.table.cols);
     html += `<p class="table-meta">표 · ${t.rows}행 × ${t.cols}열${changedShape ? ' · 크기 변경' : ''}</p>`;
-    if (t.caption) html += `<p>${escapeHtml(t.caption)}</p>`;
+    if (t.caption) html += `<p class="caption-text">${escapeHtml(t.caption)}</p>`;
     html += '<div class="table-scroll"><table class="doc-table"><tbody>';
     t.cells.forEach((row, r) => {
       html += '<tr>';
@@ -152,7 +152,7 @@ export function renderBlock(block, other, side, focus = false, query = '') {
         const changed = JSON.stringify(cell) !== JSON.stringify(peer);
         const text = highlight(side === 'before' ? cell.text : peer?.text ?? '', side === 'after' ? cell.text : peer?.text ?? '')[side];
         html += `<td rowspan="${Math.max(1, Math.min(1000, Number(cell.rowSpan) || 1))}" colspan="${Math.max(1, Math.min(1000, Number(cell.colSpan) || 1))}" class="${changed ? 'cell-' + side : ''}" title="${r + 1}행 ${c + 1}열">`;
-        html += cell.blocks?.length ? cell.blocks.map((child, n) => renderBlock(child, peer?.blocks?.[n], side)).join('') : text;
+        html += cell.blocks?.length ? cell.blocks.map((child, n) => renderBlock(child, peer?.blocks?.[n], side)).join('') : `<span class="cell-text">${text}</span>`;
         if (peer && (cell.rowSpan !== peer.rowSpan || cell.colSpan !== peer.colSpan)) html += `<small class="merge-note">병합: ${cell.rowSpan}행 × ${cell.colSpan}열</small>`;
         html += '</td>';
       });
@@ -162,7 +162,7 @@ export function renderBlock(block, other, side, focus = false, query = '') {
     html += (t.captionBlocks ?? []).map((child, n) => renderBlock(child, other?.table?.captionBlocks?.[n], side)).join('');
   }
   html += (block.children ?? []).map((child, n) => renderBlock(child, other?.children?.[n], side)).join('');
-  if (block.footnoteText) html += `<p class="footnote">주석: ${highlight(side === 'before' ? block.footnoteText : other?.footnoteText ?? '', side === 'after' ? block.footnoteText : other?.footnoteText ?? '')[side]}</p>`;
+  if (block.footnoteText) html += `<p class="footnote">주석: <span class="footnote-text">${highlight(side === 'before' ? block.footnoteText : other?.footnoteText ?? '', side === 'after' ? block.footnoteText : other?.footnoteText ?? '')[side]}</span></p>`;
   html += (block.footnoteBlocks ?? []).map((child, n) => renderBlock(child, other?.footnoteBlocks?.[n], side)).join('');
   return html || '<p class="empty-block">빈 문단 / 구분선</p>';
 }
@@ -198,7 +198,8 @@ export function renderChangedCells(diff, query = '') {
 export function renderDiff(diff, documents, navigation = false, query = '') {
   const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before', navigation && !diff.before?.table, query)}</section>
     <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after', navigation && !diff.after?.table, query)}</section></div>`;
-  const compact = (diff.type === 'modified' && diff.cells.length > 0) || (query && (diff.before?.table || diff.after?.table));
+  // During search expose all searchable fields, including captions and footnotes.
+  const compact = !query && diff.type === 'modified' && diff.cells.length > 0;
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
     ${(diff.structureChanges ?? []).map(s => `<p class="structure-note">${escapeHtml(s.path)} · ${escapeHtml(structureLabel(s.before))} → ${escapeHtml(structureLabel(s.after))}. 동일한 문구의 분류 변경이며 본문 삭제·추가로 집계하지 않습니다.</p>`).join('')}

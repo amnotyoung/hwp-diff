@@ -1,5 +1,5 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, changeCounts } from './report.js';
-import { markSearch } from './search.js';
+import { markSearch, buildSearchIndex } from './search.js';
 import { canvasWidth } from './view-layout.js';
 
 const $ = selector => document.querySelector(selector);
@@ -14,6 +14,7 @@ let previewOpened = false;
 let previewSelectionId = null, demoReversed = false;
 const previewScrolls = new Map();
 let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
+let contentSearchKey = '', contentOffsets = new Map(), visibleSearchHits = new Map();
 const queryText = () => $('#search').value.trim();
 const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
 const compactScreen = matchMedia('(max-width: 560px)');
@@ -44,6 +45,7 @@ function clearResults() {
   previewOpened = false; previewScrolls.clear();
   previewSelectionId = null;
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
+  contentSearchKey = ''; contentOffsets.clear(); visibleSearchHits.clear();
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   $('#selection-panel').hidden = true; $('#toggle-details').setAttribute('aria-expanded', 'false');
@@ -176,6 +178,16 @@ function filteredDiffs() {
 function renderList() {
   if (!result) return;
   const diffs = filteredDiffs();
+  const key = JSON.stringify([filter, queryText()]);
+  if (contentSearchKey !== key) {
+    const template = document.createElement('template');
+    const indexed = buildSearchIndex(diffs, queryText(), diff => {
+      template.innerHTML = renderDiff(diff, result.documents, true, queryText());
+      return template.content;
+    });
+    contentHits = indexed.hits; contentOffsets = indexed.offsets; contentSearchKey = key;
+    if ($('#preview-panel').hidden) searchIndex = -1;
+  }
   $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true, $('#search').value.trim())).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
   $('#load-more').hidden = diffs.length <= shown;
   $('#load-more').textContent = `다음 50개 보기 (${Math.min(shown, diffs.length)} / ${diffs.length})`;
@@ -185,8 +197,15 @@ function renderList() {
     showSelectedDetail(); for (const side of ['old', 'new']) drawOverlays(side);
     // Filtering must never navigate away from, or reposition, the current preview.
   }
-  contentHits = markSearch($('#diff-list'), queryText()).hits;
-  if ($('#preview-panel').hidden) { searchIndex = contentHits.length ? 0 : -1; updateSearchControls(); }
+  visibleSearchHits = new Map();
+  for (const card of $('#diff-list').querySelectorAll('[data-diff-id]')) {
+    const hits = markSearch(card, queryText(), contentOffsets.get(Number(card.dataset.diffId)) ?? 0).hits;
+    for (const hit of hits) visibleSearchHits.set(hit.id, hit.elements);
+  }
+  if ($('#preview-panel').hidden) {
+    for (const el of visibleSearchHits.get(searchIndex) ?? []) el.classList.add('current-search-hit');
+    updateSearchControls();
+  }
 }
 
 function navigationContext() {
@@ -540,11 +559,11 @@ function restorePreviewScroll(side) {
 function updateSearchControls() {
   const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
   const query = queryText();
-  const total = filteredDiffs().length, loaded = Math.min(shown, total);
+  const total = filteredDiffs().length;
   $('#search-count').textContent = query ? preview
     ? `원본 전체에서 ${hits.length}개 문단 일치 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
-    : `현재 표시된 ${loaded}개 항목에서 ${hits.length >= 1000 ? '최대 ' : ''}${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length} (검색 결과 ${total}개 항목 중 ${loaded}개 표시)` : '';
-  $('#search-count').title = preview ? '원본 전체 문서 기준' : '현재 화면에 표시한 항목의 일치 수입니다. 다음 50개 보기를 누르면 검색 범위가 늘어납니다.';
+    : `전체 검색 결과 ${total}개 항목 · ${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}` : '';
+  $('#search-count').title = preview ? '원본 전체 문서 기준' : '선택한 변경 유형의 전체 결과를 검색합니다. 아직 표시되지 않은 항목도 자동으로 불러와 이동합니다.';
   $('#previous-match').disabled = !query || !hits.length || !!controller;
   $('#next-match').disabled = !query || !hits.length || !!controller;
   $('#toggle-search').classList.toggle('has-query', !!query);
@@ -570,9 +589,13 @@ async function focusMatch(index) {
   if (!hits.length) return;
   searchIndex = (index + hits.length) % hits.length;
   if (!preview) {
+    const hit = hits[searchIndex], diffs = filteredDiffs(), at = diffs.findIndex(d => d.id === hit.diffId);
+    if (at >= shown) { shown = Math.ceil((at + 1) / 50) * 50; renderList(); }
     $('#diff-list').querySelectorAll('.current-search-hit').forEach(e => e.classList.remove('current-search-hit'));
-    const hit = hits[searchIndex]; hit.elements.forEach(e => e.classList.add('current-search-hit'));
-    hit.elements[0].scrollIntoView({ block: 'center' }); rememberContentPosition();
+    const elements = visibleSearchHits.get(hit.id) ?? [];
+    elements.forEach(e => e.classList.add('current-search-hit'));
+    if (diffs[at]?.type !== 'unchanged') { selectedId = hit.diffId; updateNavigator(); }
+    elements[0]?.scrollIntoView({ block: 'center' }); rememberContentPosition();
   } else {
     const hit = hits[searchIndex];
     if (previewPages[hit.side] !== hit.page) await showPreview({ [hit.side]: hit.page }, '원본 검색 결과', false);
