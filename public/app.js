@@ -1,6 +1,6 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, changeCounts, comparisonSegments } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, filterCounts, comparisonSegments } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
-import { canvasWidth, clipPageBoxes } from './view-layout.js';
+import { canvasWidth, clipPageBoxes, previewNotice } from './view-layout.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -20,12 +20,14 @@ const segmentSelections = new Map(), segmentSides = new Map();
 const queryText = () => $('#search').value.trim();
 const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
 const compactScreen = matchMedia('(max-width: 560px)');
+const compactToolbar = matchMedia('(max-width: 960px)');
 function applyCompactScreen() {
   $('#filter-panel').open = !compactScreen.matches;
-  const destination = compactScreen.matches ? $('#workbench-menu .menu-body') : $('.result-tools');
+  const destination = compactToolbar.matches ? $('#workbench-menu .menu-body') : $('.primary-actions');
   destination.append($('#preview-actions'));
 }
 compactScreen.addEventListener('change', applyCompactScreen); applyCompactScreen();
+compactToolbar.addEventListener('change', applyCompactScreen);
 document.body.classList.add('preview-side-new');
 const activeFocusId = () => selectedFormatId ?? selectedMemoId ?? selectedId;
 function updateFiles() {
@@ -101,7 +103,7 @@ function setBusy(busy, preview = false) {
   document.querySelectorAll('[data-filter], #search').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-segment-step], #previous-segment, #next-segment').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
-  $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '렌더링 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
+  $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '미리보기 준비 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
   $('.upload-panel').setAttribute('aria-busy', String(busy));
   updateFiles();
   if (!busy) { updatePageButtons(); if (result) { updateNavigator(); updateVisibleSelection(); } }
@@ -146,7 +148,13 @@ function showResults() {
   if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 ${formatCount}곳` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
-  $('#result-title').innerHTML = changeCounts(result);
+  const counts = filterCounts(result), filterLabels = { changes: '변경만', all: '전체', added: '추가', removed: '삭제', modified: '수정', structure: '구조' };
+  document.querySelectorAll('[data-filter]').forEach(button => {
+    const key = button.dataset.filter, label = filterLabels[key];
+    button.innerHTML = `<span class="filter-label">${label}</span><span class="filter-count">${counts[key]}</span>`;
+    button.setAttribute('aria-label', `${label} ${counts[key]}개 항목`);
+    button.title = '전체 비교 결과 기준';
+  });
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 미검사';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : '서식 미검사';
@@ -158,7 +166,6 @@ function showResults() {
   $('#preview-memo-control').hidden = !memos.length;
   $('#return-memos').hidden = !memos.length;
   $('#preview-jump').hidden = !result.diffs.some(d => d.type !== 'unchanged');
-  $('#stats').innerHTML = Object.entries(result.stats).map(([type, count]) => `<div class="stat ${type}"><span>${labels[type]}</span><strong>${count}<small>개 항목</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
   $('#critical-notices').replaceChildren();
   if (result.formatting?.available === false) $('#critical-notices').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
@@ -346,9 +353,12 @@ async function loadPreview(side, page, jump = false) {
   if (jump && location?.boxes.length) page = location.boxes[0].page;
   const key = previewKey(side, page);
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
-  $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '문서 배치를 렌더링하고 있습니다…';
+  $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '미리보기를 준비하고 있습니다…';
   $(`#${side}-preview-warnings`).textContent = '';
+  delete $(`#${side}-preview-warnings`).dataset.noticeKey;
   $(`#${side}-render-notice`).hidden = true;
+  const previousInfo = $(`#${side}-preview-warnings`).closest('.document-info');
+  previousInfo.open = false; previousInfo.hidden = true;
   try {
     let data = previewCache.get(key);
     if (!data) {
@@ -372,12 +382,7 @@ async function loadPreview(side, page, jump = false) {
     $(`#${side}-page`).setCustomValidity('');
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
-    const focused = data.locations?.find(l => l.id === activeFocusId());
-    const renderingNotice = $(`#${side}-render-notice`);
-    renderingNotice.hidden = !data.rendering?.message && !data.warnings.length;
-    renderingNotice.textContent = data.rendering?.unmatchedTextCount ? `렌더링 확인 필요 · ${data.rendering.unmatchedTextCount}개 문구 미확인 ⓘ` : data.rendering?.invalidBoxCount ? '강조 위치 일부 미확인 ⓘ' : '렌더링 주의사항 ⓘ';
-    renderingNotice.title = data.rendering?.message || data.warnings.join(' ');
-    $(`#${side}-preview-warnings`).innerHTML = `${data.rendering?.message ? `<p>${escapeHtml(data.rendering.message)}</p>` : ''}${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
+    updatePreviewNotice(side);
     drawOverlays(side);
     await img.decode().catch(() => {});
     fitPreviewPages();
@@ -528,6 +533,18 @@ function focusLocation(side) {
   return { ...location, boxes: segment.boxes, status: segment.boxes.length ? location.status : 'unresolved',
     message: segment.boxes.length ? location.message : '현재 구간의 원본 위치를 확인하지 못했습니다. 내용 비교와 원본 파일에서 확인해 주세요.' };
 }
+function updatePreviewNotice(side) {
+  const data = previewData[side]; if (!data) return;
+  const notice = previewNotice(data, focusLocation(side));
+  const button = $(`#${side}-render-notice`), info = $(`#${side}-preview-warnings`).closest('.document-info');
+  button.hidden = !notice.title; info.hidden = !notice.title;
+  button.textContent = notice.title ? `${notice.title} ⓘ` : '';
+  button.removeAttribute('title');
+  const html = notice.title ? `<p>${escapeHtml(notice.title)}</p><p>${escapeHtml(notice.message)}</p><button type="button" class="button secondary" data-return-comparison>내용 비교 보기</button>` : '';
+  const warnings = $(`#${side}-preview-warnings`), key = JSON.stringify(notice);
+  if (warnings.dataset.noticeKey !== key) { warnings.innerHTML = html; warnings.dataset.noticeKey = key; }
+  if (!notice.title) info.open = false;
+}
 function updateSegmentControls() {
   const diff = result?.diffs.find(d => d.id === selectedId), segments = diff && !selectedMemoId && !selectedFormatId ? comparisonSegments(diff) : [];
   const current = segmentSelections.get(selectedId) ?? 0;
@@ -605,7 +622,7 @@ function updateVisibleSelection() {
   if (!id) {
     $('#preview-selection-status').textContent = '선택 항목 없음';
     $('#preview-jump').disabled = true; $('#preview-location-details').hidden = true;
-    for (const side of ['old', 'new']) $(`#${side}-position-note`).hidden = true;
+    for (const side of ['old', 'new']) { $(`#${side}-position-note`).hidden = true; updatePreviewNotice(side); }
     return;
   }
   const label = selectedMemoId ? `메모 ${String(id).slice(5)}` : selectedFormatId ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
@@ -614,10 +631,10 @@ function updateVisibleSelection() {
     const note = $(`#${side}-position-note`), onPage = pages.includes(previewPages[side]);
     note.hidden = onPage;
     note.disabled = location?.status === 'absent' || !!controller;
-    note.textContent = pages.length ? `선택 항목: 렌더링 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '위치 미확인 · 비교 내용으로 돌아가기 →';
+    note.textContent = pages.length ? `선택 항목: 미리보기 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '위치 미확인 · 비교 내용으로 돌아가기 →';
     const prefix = side === 'old' ? '구버전' : '신버전';
-    if (pages.includes(previewPages[side])) return `${prefix}: 현재 렌더링 ${previewPages[side]}쪽에 표시`;
-    if (pages.length) return `${prefix}: 렌더링 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
+    if (pages.includes(previewPages[side])) return `${prefix}: 현재 미리보기 ${previewPages[side]}쪽에 표시`;
+    if (pages.length) return `${prefix}: 미리보기 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
     return `${prefix}: ${location?.status === 'absent' ? '해당 항목 없음' : '위치 미확인'}`;
   });
   $('#preview-selection-status').textContent = `${label} — ${statuses.join(' / ')}`;
@@ -629,14 +646,15 @@ function updateVisibleSelection() {
   $('#preview-jump').dataset.retry = String(!!failed.length);
   $('#preview-jump').disabled = !!controller || located.every(({ location }) => location?.status === 'absent');
   $('#preview-jump').textContent = failed.length ? '위치 다시 찾기' : partial.length ? '확인된 영역 보기' : '변경 위치 보기';
-  const help = [...failed, ...partial].map(({ side, location }) => `${side === 'old' ? '구버전' : '신버전'}: ${location?.message || '미리보기 위치 정보를 가져오지 못했습니다.'}`);
+  const help = [...new Set([...failed, ...partial].map(({ side, location }) => previewNotice(previewData[side], location).message).filter(Boolean))];
   $('#preview-location-details').hidden = !help.length;
-  $('#preview-location-summary').textContent = failed.some(({ location }) => location?.reason === 'text-unmatched') ? '미리보기 텍스트에서 문구를 찾지 못함 · 자세히' : failed.length ? '변경 위치 정보를 연결하지 못함 · 자세히' : '일부 위치만 확인됨 · 자세히';
+  $('#preview-location-summary').textContent = failed.length ? '이 변경 위치를 찾지 못했습니다.' : '일부 변경 위치에 색 표시를 하지 못했습니다.';
   $('#preview-location-help').textContent = help.join('\n');
   $('#return-comparison').textContent = `${selectedFormatId ? '서식' : selectedMemoId ? '메모' : '내용'} 비교로 돌아가기`;
   $('#preview-memo-control').hidden = !selectedMemoId;
   $('#preview-format-control').hidden = !selectedFormatId;
   $('#return-memos').hidden = true; $('#return-formats').hidden = true;
+  for (const side of ['old', 'new']) updatePreviewNotice(side);
 }
 function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
@@ -744,7 +762,7 @@ async function focusMatch(index) {
     const scale = canvas.getBoundingClientRect().width / data.width;
     if ($('#preview-zoom').value !== 'page') viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
     if (compactScreen.matches && $('#preview-zoom').value === 'fit') $(`#${hit.side}-overlays .search-region`)?.scrollIntoView({ block: 'center' });
-    $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} 렌더링 ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
+    $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} 미리보기 ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
   }
   updateSearchControls();
 }
@@ -771,20 +789,27 @@ function fitPreviewPages() {
 const previewResize = new ResizeObserver(() => fitPreviewPages());
 for (const side of ['old', 'new']) {
   previewResize.observe($(`#${side}-viewport`));
+  const info = $(`#${side}-preview-warnings`).closest('.document-info');
+  info.id = `${side}-preview-info`;
+  $(`#${side}-render-notice`).setAttribute('aria-controls', info.id);
+  info.addEventListener('toggle', () => $(`#${side}-render-notice`).setAttribute('aria-expanded', String(info.open)));
   $(`#${side}-position-note`).addEventListener('click', () => {
     const location = focusLocation(side);
     if (location?.boxes.length) showPreview({ [side]: location.boxes[0].page }, '', false);
     else returnToComparison();
   });
   $(`#${side}-render-notice`).addEventListener('click', () => {
-    $(`#${side}-preview-warnings`).closest('.document-info').open = true;
+    const popover = $(`#${side}-preview-warnings`).closest('.document-info');
+    popoverOpeners.set(popover, $(`#${side}-render-notice`));
+    popover.open = !popover.open;
+    if (popover.open) popover.querySelector('[data-close-popover]')?.focus({ preventScroll: true });
   });
 }
 function setDetails(open) {
   document.body.classList.toggle('details-open', open);
   $('#selection-panel').hidden = !open; $('#toggle-details').setAttribute('aria-expanded', String(open));
   if (open) { $('#workbench-menu').open = false; showSelectedDetail(); $('#close-details').focus(); }
-  else (compactScreen.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
+  else (compactToolbar.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
   requestAnimationFrame(fitPreviewPages);
 }
 $('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
@@ -794,10 +819,10 @@ $('#toggle-highlights').addEventListener('click', () => {
 });
 $('#expand-explanation').addEventListener('click', () => setDetails(true));
 $('#close-details').addEventListener('click', () => setDetails(false));
-function setSearch(open) {
+function setSearch(open, restoreFocus = true) {
   $('#search-panel').hidden = !open; $('#toggle-search').setAttribute('aria-expanded', String(open));
   if (open) $('#search').focus();
-  else { clearSearch(); $('#toggle-search').focus(); }
+  else { clearSearch(); if (restoreFocus) $('#toggle-search').focus(); }
 }
 function clearSearch() {
   if (!$('#search').value) return;
@@ -812,10 +837,36 @@ function clearSearch() {
 }
 $('#toggle-search').addEventListener('click', () => setSearch($('#search-panel').hidden));
 $('#close-search').addEventListener('click', () => setSearch(false));
+const popoverOpeners = new Map();
+const popovers = () => [...document.querySelectorAll('.workbench-popover, .document-info')];
+function closePopover(popover, restoreFocus = false) {
+  popover.open = false;
+  if (restoreFocus) (popoverOpeners.get(popover) ?? popover.querySelector('summary'))?.focus({ preventScroll: true });
+}
+for (const popover of popovers()) {
+  popover.querySelector('summary').addEventListener('click', () => popoverOpeners.set(popover, popover.querySelector('summary')));
+  popover.addEventListener('toggle', () => {
+    if (popover.open) for (const other of popovers()) if (other !== popover && other.open) closePopover(other);
+  });
+}
+document.addEventListener('click', event => {
+  const dismiss = event.target.closest('[data-close-popover]');
+  if (dismiss) closePopover(dismiss.closest('.workbench-popover, .document-info'), true);
+  if (event.target.closest('[data-return-comparison]')) { for (const popover of popovers()) closePopover(popover); returnToComparison(); }
+  const notice = event.target.closest('.rendering-notice');
+  const openedByNotice = notice ? $(`#${notice.id.replace('-render-notice', '')}-preview-warnings`).closest('.document-info') : null;
+  for (const popover of popovers()) if (popover.open && !popover.contains(event.target) && popover !== openedByNotice) closePopover(popover);
+  if (!$('#search-panel').hidden && !event.target.closest('.search-anchor')) setSearch(false, false);
+});
+$('#counterpart-dialog').addEventListener('click', event => {
+  const rect = $('#counterpart-dialog').getBoundingClientRect();
+  if (event.target === $('#counterpart-dialog') && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) $('#counterpart-dialog').close();
+});
 window.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if ($('#counterpart-dialog').open) { $('#counterpart-dialog').close(); event.preventDefault(); return; }
+  const opened = popovers().filter(popover => popover.open);
+  if (opened.length) { opened.forEach(popover => closePopover(popover, true)); event.preventDefault(); return; }
   if (!$('#search-panel').hidden) setSearch(false);
   else if (!$('#selection-panel').hidden) setDetails(false);
-  $('#workbench-menu').open = false; $('#notice-menu').open = false; $('#file-info-menu').open = false;
 });

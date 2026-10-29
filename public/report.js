@@ -114,9 +114,10 @@ export function previewExplanation(diff, category = 'content', segmentIndex = 0)
   return `<div class="explanation-heading"><strong>${escapeHtml(title)}</strong>${note ? `<span>${escapeHtml(note)}</span>` : ''}</div><div class="explanation-values">${[['before', before], ['after', after]].map(([side, text]) => `<p><span class="explanation-side">${side === 'before' ? '구버전' : '신버전'}</span><span class="explanation-excerpt" title="${escapeHtml(text)}">${briefEdit(before, after, side)}</span></p>`).join('')}</div>`;
 }
 
-export function changeCounts(result) {
-  return [['added', '추가', result.stats.added], ['removed', '삭제', result.stats.removed], ['modified', '수정', result.stats.modified], ['structure', '구조', result.structureStats?.changed ?? 0]]
-    .map(([type, label, count]) => `<span class="count-${type}">${label} <strong>${count}</strong></span>`).join('');
+export function filterCounts(result) {
+  const counts = { changes: 0, all: result.diffs.length, added: 0, removed: 0, modified: 0, structure: 0 };
+  for (const diff of result.diffs) if (diff.type !== 'unchanged') { counts.changes++; if (diff.type in counts) counts[diff.type]++; }
+  return counts;
 }
 
 // Show actual edits (or search matches) first; unchanged context remains available.

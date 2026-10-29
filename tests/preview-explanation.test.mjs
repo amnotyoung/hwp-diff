@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { previewExplanation, changeCounts, renderDiff } from '../public/report.js';
+import { previewExplanation, filterCounts, renderDiff } from '../public/report.js';
 
 const diff = (before, after, extra = {}) => ({ id: 3, type: 'modified', before: { text: before }, after: { text: after }, cells: [], ...extra });
 
@@ -35,10 +35,9 @@ test('memo and formatting explanations expose actual changes and escape document
   assert.match(metadata, /홍길동/); assert.match(metadata, /김철수/);
 });
 
-test('always-visible counts keep structure separate and exclude unsupported image totals', () => {
-  const html = changeCounts({ stats: { added: 3, removed: 1, modified: 5, unchanged: 70 }, structureStats: { changed: 2 }, unsupported: { before: [1, 2], after: [1, 2] } });
-  assert.match(html, /수정 <strong>5<\/strong>/); assert.match(html, /구조 <strong>2<\/strong>/);
-  assert.ok(!html.includes('70'));
+test('filter counts match selectable items, keep structure separate and exclude images', () => {
+  const diffs = Object.entries({ added: 3, removed: 1, modified: 5, structure: 2, unchanged: 70 }).flatMap(([type, n]) => Array.from({ length: n }, () => ({ type })));
+  assert.deepEqual(filterCounts({ diffs, unsupported: { before: [1, 2], after: [1, 2] } }), { all: 81, changes: 11, added: 3, removed: 1, modified: 5, structure: 2 });
 });
 
 test('detail pane shows the edit first without adding a redundant source-navigation button', () => {

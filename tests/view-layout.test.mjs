@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasWidth, clipPageBoxes } from '../public/view-layout.js';
+import { canvasWidth, clipPageBoxes, previewNotice } from '../public/view-layout.js';
 import { fileLabel } from '../public/report.js';
 
 test('page fit preserves the complete portrait or landscape sheet within both available dimensions', () => {
@@ -39,4 +39,14 @@ test('page-local highlights clip edges, discard empty/off-page boxes and dedupli
     { page: 2, x: 0, y: 10, width: 30, height: 20 }, { page: 3, x: NaN, y: 10, width: 30, height: 20 }];
   assert.deepEqual(clipPageBoxes(boxes, page), [{ page: 3, x: 0, y: 830, width: 90, height: 12 }]);
   assert.deepEqual(clipPageBoxes(boxes, { ...page, page: 4 }), []);
+});
+
+test('one reader-facing notice replaces overlapping geometry diagnostics without hiding missing text', () => {
+  const data = { rendering: { invalidBoxCount: 8 }, warnings: ['여러 쪽에 걸친 표의 region을 분할하지 못했습니다.'] };
+  const notice = previewNotice(data, { status: 'partial-text', message: '페이지 밖 위치 8개 제외' });
+  assert.match(notice.title, /색 표시/); assert.match(notice.message, /내용 비교/);
+  assert.ok(!JSON.stringify(notice).match(/region|8개|좌표|페이지 밖/));
+  const missing = previewNotice({ ...data, rendering: { ...data.rendering, unmatchedTextCount: 2 } }, { status: 'unresolved' });
+  assert.match(missing.title, /글이 보이지/); assert.match(missing.message, /원본 파일/);
+  assert.deepEqual(previewNotice({ warnings: [] }, { status: 'paragraph' }), { title: '', message: '' });
 });
