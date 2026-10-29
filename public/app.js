@@ -1,4 +1,4 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml } from './report.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -87,7 +87,11 @@ function showResults() {
   document.body.classList.add('has-results'); document.body.classList.remove('edit-files');
   $('#empty-state').hidden = true; $('#results').hidden = false;
   const total = result.stats.added + result.stats.removed + result.stats.modified;
-  $('#result-title').textContent = total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
+  const memoStats = result.annotations?.stats;
+  const memoChanges = memoStats ? memoStats.added + memoStats.removed + memoStats.modified : 0;
+  $('#result-title').textContent = memoChanges ? `본문 변경 ${total}개 · 메모 변경 ${memoChanges}개` : total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
+  $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
+  $('#memo-panel').innerHTML = annotationsHtml(result.annotations);
   $('#stats').innerHTML = Object.entries(labels).map(([type, label]) => `<div class="stat ${type}"><span>${label}</span><strong>${result.stats[type]}<small>개 블록</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
@@ -96,6 +100,7 @@ function showResults() {
   }
   $('#preview-change').innerHTML = result.diffs.filter(d => d.type !== 'unchanged').map(d => `<option value="${d.id}">${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 45))}</option>`).join('') || '<option value="">변경 없음</option>';
   renderList();
+  if (!total && memoChanges) setView('memos');
   $('#results').scrollIntoView({ block: 'start' });
   rememberContentPosition();
 }
@@ -172,13 +177,15 @@ $('#export-html').addEventListener('click', () => { if (result) download(exportH
 $('#export-json').addEventListener('click', () => { if (result) download(JSON.stringify(result, null, 2), 'application/json;charset=utf-8', 'json'); });
 
 function setView(preview) {
+  const memoView = preview === 'memos'; preview = preview === true;
   const wasPreview = !$('#preview-panel').hidden;
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
-  $('#content-panel').hidden = preview; $('#preview-panel').hidden = !preview;
-  for (const [id, active] of [['view-content', !preview], ['view-preview', preview]]) {
+  $('#content-panel').hidden = preview || memoView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView;
+  $('.results-toolbar').hidden = memoView; $('.change-navigator').hidden = memoView;
+  for (const [id, active] of [['view-content', !preview && !memoView], ['view-preview', preview], ['view-memos', memoView]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
-  if (!preview && wasPreview && result) requestAnimationFrame(() => {
+  if (!preview && !memoView && wasPreview && result) requestAnimationFrame(() => {
     if (selectedId === contentSelectedId) window.scrollTo({ top: contentScroll });
     else $(`#change-${selectedId}`)?.scrollIntoView({ block: 'start' });
   });
@@ -255,6 +262,7 @@ function jumpToDiff(id) {
   showPreview(pages, '변경 항목을 원문에서 찾아 이동합니다. 위치를 찾지 못한 경우 각 문서 아래에 안내합니다.', true);
 }
 $('#view-content').addEventListener('click', () => setView(false));
+$('#view-memos').addEventListener('click', () => setView('memos'));
 $('#view-preview').addEventListener('click', () => selectedId ? jumpToDiff(selectedId) : showPreview());
 $('#preview-jump').addEventListener('click', () => jumpToDiff($('#preview-change').value));
 $('#preview-change').addEventListener('change', event => jumpToDiff(event.target.value));

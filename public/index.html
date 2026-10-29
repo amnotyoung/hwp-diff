@@ -48,10 +48,11 @@
         <div id="stats" class="stats"></div>
         <div id="warnings"></div>
         <div class="result-tools">
-        <div class="view-tabs" role="group" aria-label="결과 보기 방식"><button id="view-content" class="selected" aria-pressed="true">내용 비교</button><button id="view-preview" aria-pressed="false">원본 미리보기</button><span>추가 · 초록 / 삭제 · 빨강 / 수정 · 노랑</span></div>
+        <div class="view-tabs" role="group" aria-label="결과 보기 방식"><button id="view-content" class="selected" aria-pressed="true">내용 비교</button><button id="view-preview" aria-pressed="false">원본 미리보기</button><button id="view-memos" aria-pressed="false">메모</button><span>추가 · 초록 / 삭제 · 빨강 / 수정 · 노랑</span></div>
         <div class="results-toolbar"><div id="filters" class="filters" role="group" aria-label="변경 유형 필터"><button data-filter="changes" class="selected" aria-pressed="true">변경만</button><button data-filter="all" aria-pressed="false">전체</button><button data-filter="added" aria-pressed="false">추가</button><button data-filter="removed" aria-pressed="false">삭제</button><button data-filter="modified" aria-pressed="false">수정</button></div><input id="search" type="search" placeholder="문서 내용 검색" aria-label="결과에서 문서 내용 검색"></div>
         <nav class="change-navigator" aria-label="변경 목록"><button id="previous-change" class="button secondary">← 이전 변경</button><label><span id="change-position">변경 목록</span><select id="change-list" aria-label="변경 항목 선택"></select></label><button id="next-change" class="button secondary">다음 변경 →</button></nav>
         </div>
+        <section id="memo-panel" hidden aria-label="메모 비교 결과"></section>
         <section id="preview-panel" hidden aria-label="원본 문서 미리보기">
           <div class="preview-toolbar"><label>변경 항목 <select id="preview-change" aria-label="미리볼 변경 항목"></select></label><button id="preview-jump" class="button secondary">해당 쪽 보기</button><label class="zoom-control">확대 <select id="preview-zoom" aria-label="미리보기 확대"><option value="fit">폭 맞춤</option><option value="100">100%</option><option value="150">150%</option><option value="200">200%</option></select></label></div>
           <p id="preview-status" class="preview-status" role="status"></p>

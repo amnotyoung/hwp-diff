@@ -2,6 +2,7 @@
 process.env.KORDOC_OFFLINE = '1';
 process.env.ORT_DISABLE_TELEMETRY = '1';
 const { parse, diffBlocks, VERSION } = await import('kordoc');
+import { compareAnnotations } from './annotations.mjs';
 
 export const LIMITATIONS = [
   '본문과 표의 내용·병합 구조를 비교합니다. 글꼴·색상·여백·그림·도장과 그림 속 글자는 비교하지 않습니다.',
@@ -140,6 +141,7 @@ export async function compareDocuments(oldFile, newFile) {
       ...(a.warnings ?? []).map(w => ({ ...w, document: '구버전' })),
       ...(b.warnings ?? []).map(w => ({ ...w, document: '신버전' })),
     ],
+    annotations: await compareAnnotations(oldFile, newFile, [a.fileType, b.fileType]),
     limitations: LIMITATIONS,
   });
 }

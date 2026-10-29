@@ -122,14 +122,32 @@ export function warningsHtml(result) {
   return note + (result.warnings.length ? `<details class="parse-warning"><summary>일부 내용을 읽지 못했을 수 있습니다 · ${result.warnings.length}건</summary><p>해당 부분은 원본 문서에서 확인해 주세요.</p><details><summary>기술 정보</summary><ul>${result.warnings.map(w => `<li>${escapeHtml(w.document)} · ${escapeHtml(w.code)}: ${escapeHtml(w.message)}</li>`).join('')}</ul></details></details>` : '');
 }
 
+export function annotationsHtml(annotations) {
+  if (!annotations?.available) return `<p class="parse-warning">${escapeHtml(annotations?.message ?? '이 결과에는 메모 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
+  const { stats, diffs, counts } = annotations;
+  const changes = diffs.filter(d => d.type !== 'unchanged');
+  return `<section class="memo-results"><h2>메모 변경 ${changes.length}개</h2><p>구버전 메모 ${counts.before}개 → 신버전 메모 ${counts.after}개 · 추가 ${stats.added} / 삭제 ${stats.removed} / 수정 ${stats.modified} / 동일 ${stats.unchanged}</p><p class="memo-scope">검토 메모는 본문과 별도로 비교합니다. 원본 미리보기에는 한컴의 메모 풍선을 재현하지 않습니다.</p>
+    ${changes.length ? changes.map((d, i) => {
+      const memo = d.after ?? d.before;
+      return `<article class="memo-card" id="${escapeHtml(d.id)}"><div class="diff-heading"><span class="type-badge ${d.type}">메모 ${labels[d.type]}</span><strong>메모 ${i + 1}</strong></div>
+      <p class="memo-context"><strong>연결된 내용:</strong> ${escapeHtml(memo.anchorText || memo.context || '연결 문구를 확인하지 못했습니다.')}</p>${d.type === 'modified' && d.before.text === d.after.text ? '<p class="memo-context">메모 내용은 같고 작성자 또는 연결된 위치 정보가 달라졌습니다.</p>' : ''}
+      <div class="diff-columns">${['before', 'after'].map(side => {
+        const value = d[side];
+        return `<section class="${side}"><p class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</p>${value ? `<p class="memo-meta">작성자: ${escapeHtml(value.author || '정보 없음')}${value.createdAt ? ` · 작성 시각: ${escapeHtml(value.createdAt)}` : ''}</p><div class="memo-text">${highlight(d.before?.text ?? '', d.after?.text ?? '')[side]}</div>` : '<p class="empty-block">메모 없음</p>'}</section>`;
+      }).join('')}</div></article>`;
+    }).join('') : '<p class="no-results">메모의 추가·삭제·수정이 없습니다.</p>'}</section>`;
+}
+
 export function exportHtml(result) {
   const changes = result.diffs.filter(d => d.type !== 'unchanged');
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>문서 신구대조표</title><style>
   body{font:15px/1.7 system-ui,sans-serif;color:#202a30;margin:40px auto;max-width:1100px;padding:0 24px}h1{font-size:28px}p{overflow-wrap:anywhere}.diff-card{border:1px solid #ddd;border-radius:8px;margin:20px 0;break-inside:avoid;overflow:hidden}.diff-heading{padding:10px 16px;background:#f7f7f5;display:flex;gap:14px}.diff-columns{display:grid;grid-template-columns:1fr 1fr}.diff-columns section{padding:16px;min-width:0}.before{border-right:1px solid #ddd}.location,.table-meta{font-size:12px;color:#657076}.block-text,td{white-space:pre-wrap;overflow-wrap:anywhere}mark{color:inherit;border-radius:2px}.removed{background:#fbe2df}.added{background:#d6eee4}.type-badge{font-size:12px;padding:1px 8px;border-radius:4px}.modified{background-color:#fffaf0}.diff-card.modified{background:white}.doc-table{width:100%;border-collapse:collapse;font-size:13px}td{border:1px solid #ddd;padding:8px}.cell-before{background:#fff1ef}.cell-after{background:#edf8f2}.merge-note{display:block;color:#8c510d}.empty-block{color:#888}.parse-warning{background:#fff4d8;padding:16px}.table-scroll{overflow:auto}.footnote{font-size:12px}li{margin:5px 0}@media print{body{max-width:none;margin:0;padding:0;font-size:11px}.diff-card{break-inside:auto}mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}}@page{size:A4 landscape;margin:12mm}
+  .memo-card{border:1px solid #ddd;margin:18px 0;break-inside:avoid}.memo-card section{padding:14px}.memo-text{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope{font-size:12px;color:#657076}
   </style></head><body><h1>문서 신구대조표</h1><p>구버전: ${escapeHtml(result.documents.before.name)}<br>신버전: ${escapeHtml(result.documents.after.name)}</p>
   <p>추가 ${result.stats.added} · 삭제 ${result.stats.removed} · 수정 ${result.stats.modified} · 동일 ${result.stats.unchanged} (블록 기준)</p>
   <p>${escapeHtml(result.engine)} · ${escapeHtml(result.createdAt)} · 실제 내용의 일치 여부로 판정 · LLM 미사용</p>
   ${warningsHtml(result)}<ul>${result.limitations.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
+  ${result.annotations ? annotationsHtml(result.annotations) : ''}
   ${changes.length ? changes.map(d => renderDiff(d, result.documents)).join('') : '<p>비교 대상 본문·표에서 변경을 찾지 못했습니다. 문서 전체가 동일하다는 판정은 아닙니다.</p>'}
   <p>동일한 블록 ${result.stats.unchanged}개는 이 대조표에서 생략했습니다.</p></body></html>`;
 }
