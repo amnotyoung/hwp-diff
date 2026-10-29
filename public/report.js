@@ -87,7 +87,10 @@ export function renderDiff(diff, documents, navigation = false) {
 }
 
 export function warningsHtml(result) {
-  return result.warnings.length ? `<div class="parse-warning"><strong>추출 결과 확인 필요 · ${result.warnings.length}건</strong><ul>${result.warnings.map(w => `<li>${escapeHtml(w.document)} · ${escapeHtml(w.code)}: ${escapeHtml(w.message)}</li>`).join('')}</ul></div>` : '';
+  const excluded = result.unsupported;
+  const note = excluded && (excluded.before.length || excluded.after.length)
+    ? `<p class="parse-warning">그림 비교 미지원 · 구버전 ${excluded.before.length}개 / 신버전 ${excluded.after.length}개. 그림은 추가·삭제·수정·동일 건수에서 제외했습니다.</p>` : '';
+  return note + (result.warnings.length ? `<details class="parse-warning"><summary>일부 내용을 읽지 못했을 수 있습니다 · ${result.warnings.length}건</summary><p>해당 부분은 원본 문서에서 확인해 주세요.</p><details><summary>기술 정보</summary><ul>${result.warnings.map(w => `<li>${escapeHtml(w.document)} · ${escapeHtml(w.code)}: ${escapeHtml(w.message)}</li>`).join('')}</ul></details></details>` : '');
 }
 
 export function exportHtml(result) {

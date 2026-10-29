@@ -11,23 +11,47 @@ export const LIMITATIONS = [
 
 // Keep only the content we actually compare and display. Never forward image bytes or HTML.
 export function content(block) {
-  if (!block) return null;
+  if (!block || block.type === 'image') return null;
   const out = { type: block.type, text: block.text ?? '' };
-  if (block.children?.length) out.children = block.children.map(content);
+  const children = block.children?.map(content).filter(Boolean);
+  if (children?.length) out.children = children;
   if (block.footnoteText) out.footnoteText = block.footnoteText;
   if (block.footnoteBlocks?.length) out.footnoteBlocks = block.footnoteBlocks.map(content);
   if (block.table) {
     const t = block.table;
     out.table = {
       rows: t.rows, cols: t.cols, caption: t.caption ?? '',
-      captionBlocks: t.captionBlocks?.map(content) ?? [],
+      captionBlocks: t.captionBlocks?.map(content).filter(Boolean) ?? [],
       cells: t.cells.map(row => row.map(cell => cell ? {
-        text: cell.text ?? '', rowSpan: cell.rowSpan ?? 1, colSpan: cell.colSpan ?? 1,
-        blocks: cell.blocks?.map(content) ?? [],
+        text: cell.blocks?.some(hasImage) ? cell.blocks.map(content).filter(Boolean).map(plainContent).join('\n') : cell.text ?? '',
+        rowSpan: cell.rowSpan ?? 1, colSpan: cell.colSpan ?? 1,
+        blocks: cell.blocks?.map(content).filter(Boolean) ?? [],
       } : null)),
     };
   }
   return out;
+}
+
+function plainContent(block) {
+  return [block.text, ...(block.children ?? []).map(plainContent),
+    ...(block.table?.cells ?? []).flat().filter(Boolean).map(c => c.text)].filter(Boolean).join('\n');
+}
+
+function hasImage(block) {
+  return block.type === 'image' || (block.children ?? []).some(hasImage) ||
+    (block.table?.cells ?? []).flat().some(c => c?.blocks?.some(hasImage));
+}
+
+function imageInventory(blocks) {
+  const images = [];
+  function visit(block, blockIndex, path) {
+    if (block.type === 'image') images.push({ blockIndex, path });
+    for (const key of ['children', 'footnoteBlocks']) (block[key] ?? []).forEach((child, i) => visit(child, blockIndex, `${path}/${key}/${i + 1}`));
+    (block.table?.captionBlocks ?? []).forEach((child, i) => visit(child, blockIndex, `${path}/caption/${i + 1}`));
+    (block.table?.cells ?? []).forEach((row, r) => row.forEach((cell, c) => (cell?.blocks ?? []).forEach((child, i) => visit(child, blockIndex, `${path}/${r + 1}행/${c + 1}열/${i + 1}`))));
+  }
+  blocks.forEach((block, i) => visit(block, i + 1, `${i + 1}번 항목`));
+  return images;
 }
 
 function cellChanges(before, after) {
@@ -49,9 +73,11 @@ export function compareBlocks(before, after, metadata = {}) {
   if (before.length > 2000 || after.length > 2000 || before.length * after.length > 2_000_000) {
     throw new Error('문단 수가 첫 버전의 처리 한도를 넘습니다. 문서를 나누어 비교해 주세요.');
   }
-  const aligned = diffBlocks(before, after);
+  // Unsupported objects must not participate in alignment or change counts.
+  const aligned = diffBlocks(before.filter(b => b.type !== 'image'), after.filter(b => b.type !== 'image'));
   const stats = { added: 0, removed: 0, modified: 0, unchanged: 0 };
-  let oldIndex = 0, newIndex = 0;
+  const oldIndexes = new Map(before.map((b, i) => [b, i + 1]));
+  const newIndexes = new Map(after.map((b, i) => [b, i + 1]));
   const diffs = aligned.diffs.map((pair, index) => {
     const a = content(pair.before), b = content(pair.after);
     // Kordoc 4.24.18 treats >= .99 similarity as unchanged. Use exact equality
@@ -61,12 +87,12 @@ export function compareBlocks(before, after, metadata = {}) {
     stats[type]++;
     return {
       id: index + 1, type, before: a, after: b,
-      oldIndex: a ? ++oldIndex : null, newIndex: b ? ++newIndex : null,
+      oldIndex: oldIndexes.get(pair.before) ?? null, newIndex: newIndexes.get(pair.after) ?? null,
       oldPage: pair.before?.pageNumber ?? null, newPage: pair.after?.pageNumber ?? null,
       cells: a?.table && b?.table ? cellChanges(a.table, b.table) : [],
     };
   });
-  return { stats, diffs, ...metadata };
+  return { stats, diffs, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
 }
 
 async function readDocument(bytes, name) {

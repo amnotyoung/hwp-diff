@@ -130,3 +130,27 @@ test('export is standalone and escapes file names, document text and parser warn
   const card = renderDiff(r.diffs.find(d => d.before?.table), r.documents);
   assert.ok(card.includes('cell-before')); assert.ok(card.includes('cell-after'));
 });
+
+test('unsupported image changes do not inflate five real modifications to seven', () => {
+  const a = Array.from({ length: 5 }, (_, i) => paragraph(`사업 항목 ${i} 금액 500만원`));
+  const b = a.map(p => paragraph(p.text.replace('500', '501')));
+  a.splice(2, 0, { type: 'image', text: 'old-logo.png' }, { type: 'image', text: 'old-stamp.png' });
+  b.splice(2, 0, { type: 'image', text: 'new-logo.png' }, { type: 'image', text: 'new-stamp.png' });
+  const r = compareBlocks(a, b);
+  assert.equal(r.stats.modified, 5); assert.equal(r.diffs.length, 5);
+  assert.equal(r.unsupported.before.length, 2); assert.equal(r.unsupported.after.length, 2);
+  assert.equal(r.diffs[2].oldIndex, 5);
+});
+
+test('added and removed images are unsupported, including images inside cells', () => {
+  const image = { type: 'image', text: 'new-image.png' };
+  assert.deepEqual(compareBlocks([], [image]).stats, { added: 0, removed: 0, modified: 0, unchanged: 0 });
+  assert.equal(compareBlocks([image], []).unsupported.before.length, 1);
+  const a = table([['설명']]); const b = structuredClone(a);
+  a.table.cells[0][0].blocks = [paragraph('설명'), { ...image, text: 'old.png' }];
+  b.table.cells[0][0].blocks = [paragraph('설명'), image];
+  a.table.cells[0][0].text = '설명 old.png'; b.table.cells[0][0].text = '설명 new-image.png';
+  const r = compareBlocks([a], [b]);
+  assert.equal(r.stats.modified, 0); assert.equal(r.diffs[0].cells.length, 0);
+  assert.equal(r.unsupported.after.length, 1);
+});
