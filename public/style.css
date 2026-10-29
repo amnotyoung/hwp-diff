@@ -467,6 +467,7 @@ html { scrollbar-gutter:stable; }
 .preview-segment-controls button { font-size:12px; }
 #segment-position { min-width:38px; text-align:center; }
 .region-box.secondary-region { fill-opacity:.025; stroke-opacity:.18; stroke-width:.6; }
+.region-box.format-region.secondary-region { fill-opacity:.16; stroke-opacity:1; stroke-width:1.25; }
 .preview-overlays g:focus .region-box:not(.secondary-region) { stroke-width:2.5; }
 #toggle-highlights[aria-pressed=false] { background:var(--surface); color:var(--muted); }
 #counterpart-dialog { width:1100px; max-width:calc(100vw - 24px); max-height:85dvh; padding:0; border:1px solid var(--line); border-radius:4px; color:var(--ink); }

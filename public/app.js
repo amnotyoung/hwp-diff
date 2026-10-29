@@ -153,7 +153,7 @@ function showResults() {
     const key = button.dataset.filter, label = filterLabels[key];
     button.innerHTML = `<span class="filter-label">${label}</span><span class="filter-count">${counts[key]}</span>`;
     button.setAttribute('aria-label', `${label} ${counts[key]}개 항목`);
-    button.title = '전체 비교 결과 기준';
+    button.title = '본문·표의 내용 변경 기준';
   });
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 미검사';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
@@ -330,7 +330,7 @@ function setView(preview) {
 }
 function updateToolbar() {
   const preview = !$('#preview-panel').hidden;
-  const content = $('#memo-panel').hidden && $('#format-panel').hidden && (!preview || !selectedMemoId && !selectedFormatId);
+  const content = preview || !$('#content-panel').hidden;
   document.querySelectorAll('[data-filter], #search, #toggle-search').forEach(el => { el.disabled = !!controller || !content; });
   if (!content) {
     $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
