@@ -7,6 +7,7 @@ import { sampleFiles } from '../src/sample-data.mjs';
 import { compareDocuments } from '../src/engine.mjs';
 import { previewTargets } from '../public/report.js';
 import { memoFixture } from './helpers/memo-fixture.mjs';
+import { formatSamples } from './helpers/format-fixture.mjs';
 
 let server, base, files;
 before(async () => {
@@ -72,6 +73,16 @@ test('preview search returns matching paragraphs and binds cached images to the 
   const response = await post('/api/preview', f); assert.equal(response.status, 200);
   const data = await response.json(); assert.equal(data.searchQuery, '보건소'); assert.ok(data.searchMatches.length > 0);
   f.set('search', 'x'.repeat(101)); assert.equal((await post('/api/preview', f)).status, 400);
+});
+
+test('format-only uploads keep content counts zero and navigate using format IDs', async () => {
+  const [old, fresh] = await formatSamples();
+  const compared = await post('/api/compare', form(old, fresh)); assert.equal(compared.status, 200);
+  const r = await compared.json(); assert.equal(r.stats.modified, 0); assert.equal(r.formatting.stats.changedRanges, 5);
+  const f = new FormData(); f.append('file', new Blob([fresh.bytes]), fresh.name);
+  f.append('targets', JSON.stringify(previewTargets(r, 'new'))); f.append('focusId', 'format-5'); f.append('jump', '1');
+  const response = await post('/api/preview', f); assert.equal(response.status, 200);
+  assert.equal((await response.json()).locations.find(l => l.id === 'format-5').status, 'format');
 });
 test('missing files, unsupported extension, corrupt bytes and oversize request are rejected', async () => {
   assert.equal((await post('/api/compare', new FormData())).status, 400);

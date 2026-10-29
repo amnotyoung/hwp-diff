@@ -68,14 +68,14 @@ async function previewRequest(req) {
   if (rawTargets) {
     if (typeof rawTargets !== 'string' || rawTargets.length > 6_000_000) throw new HttpError(400, '변경 목록이 너무 큽니다. 문서를 나누어 비교해 주세요.');
     try { targets = JSON.parse(rawTargets); } catch { throw new HttpError(400, '변경 목록을 읽을 수 없습니다.'); }
-    if (!Array.isArray(targets) || targets.length > 4000 || targets.some(t => !t || (t.category === 'memo'
-      ? typeof t.id !== 'string' || !/^memo-[1-9]\d*$/.test(t.id) || !['added', 'removed', 'modified', 'unchanged'].includes(t.type)
+    if (!Array.isArray(targets) || targets.length > 8000 || targets.some(t => !t || (t.category === 'memo' || t.category === 'format'
+      ? typeof t.id !== 'string' || !(t.category === 'memo' ? /^memo-[1-9]\d*$/ : /^format-[1-9]\d*$/).test(t.id) || !['added', 'removed', 'modified', 'unchanged'].includes(t.type)
       : !Number.isInteger(t.id) || !['added', 'removed', 'modified'].includes(t.type)))) throw new HttpError(400, '올바르지 않은 변경 목록입니다.');
   }
   const rawFocus = form.get('focusId');
   const search = form.get('search') ?? '';
   if (typeof search !== 'string' || search.length > 100) throw new HttpError(400, '검색어는 100자 이하로 입력해 주세요.');
-  const options = { targets, search, focusId: typeof rawFocus === 'string' && /^memo-[1-9]\d*$/.test(rawFocus) ? rawFocus : Number(rawFocus), jump: form.get('jump') === '1' };
+  const options = { targets, search, focusId: typeof rawFocus === 'string' && /^(memo|format)-[1-9]\d*$/.test(rawFocus) ? rawFocus : Number(rawFocus), jump: form.get('jump') === '1' };
   if (form.get('demo') === '1') {
     const side = form.get('side');
     if (!['old', 'new'].includes(side)) throw new HttpError(400, '미리볼 문서를 선택해 주세요.');

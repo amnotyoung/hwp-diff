@@ -20,7 +20,8 @@ export function previewTargets(result, side) {
     textAnchors: d.cells.length ? [] : changeAnchors(blockText(d.before), blockText(d.after), old ? 'before' : 'after'),
   }));
   const memos = (result.annotations?.diffs ?? []).map(d => ({ id: d.id, category: 'memo', type: d.type, memo: old ? d.before : d.after }));
-  return [...body, ...memos];
+  const formatting = (result.formatting?.diffs ?? []).map(d => ({ id: d.id, category: 'format', type: 'modified', range: old ? d.before : d.after }));
+  return [...body, ...memos, ...formatting];
 }
 
 export function highlight(before = '', after = '') {
@@ -172,16 +173,34 @@ export function annotationsHtml(annotations, navigation = false) {
     ${stats.unchanged ? `<details class="unchanged-memos"><summary>동일한 메모 ${stats.unchanged}개 보기</summary>${diffs.filter(d => d.type === 'unchanged').map(card).join('')}</details>` : ''}</section>`;
 }
 
+export function formatCardHtml(diff, number, navigation = false, prefix = '') {
+  const value = (property, v) => `${escapeHtml(v === 'AUTO' ? '자동' : v)}${property === 'spacing' || property === 'ratio' ? '%' : ''}`;
+  const swatch = v => /^#[0-9A-F]{6}$/i.test(v) ? `<svg class="color-swatch" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" fill="${escapeHtml(v)}"/></svg>` : '';
+  const excerpt = range => `${range.start > 48 ? '…' : ''}${escapeHtml(range.paragraphText.slice(Math.max(0, range.start - 48), range.start))}<mark class="format-text">${escapeHtml(range.paragraphText.slice(range.start, range.end))}</mark>${escapeHtml(range.paragraphText.slice(range.end, range.end + 48))}${range.paragraphText.length > range.end + 48 ? '…' : ''}`;
+  const location = loc => `${Number(loc.section.match(/\d+/)?.[0] ?? 0) + 1}구역 · 문단 ${loc.paragraph}${loc.row ? ` · 표 ${loc.row}행 ${loc.col}열` : ''}`;
+  return `<article class="format-card" id="${escapeHtml(prefix + diff.id)}"><div class="diff-heading"><span class="type-badge format-badge">서식 변경</span><strong>구간 ${number}</strong>${navigation ? `<button class="format-location-button" data-preview-format="${escapeHtml(diff.id)}" aria-label="서식 구간 ${number} 원문 위치 보기">원문 위치 보기 ↗</button>` : ''}</div>
+    <div class="diff-columns">${['before', 'after'].map(side => `<section class="${side}"><p class="cell-side-label">${side === 'before' ? '구버전' : '신버전'} · ${escapeHtml(location(diff[side].location))}</p><p class="format-excerpt">${excerpt(diff[side])}</p></section>`).join('')}</div>
+    <table class="format-values"><thead><tr><th scope="col">서식</th><th scope="col">구버전</th><th scope="col">신버전</th></tr></thead><tbody>${diff.changes.map(change => `<tr><th scope="row">${escapeHtml(change.label)}</th><td>${change.property === 'color' ? swatch(change.before) : ''}${value(change.property, change.before)}</td><td>${change.property === 'color' ? swatch(change.after) : ''}${value(change.property, change.after)}</td></tr>`).join('')}</tbody></table></article>`;
+}
+
+export function formattingHtml(formatting, navigation = false) {
+  if (!formatting?.available) return `<p class="parse-warning">${escapeHtml(formatting?.message ?? '서식 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
+  const labels = { color: '글자색', font: '글꼴', spacing: '자간', ratio: '장평' };
+  return `<section class="format-results"><h2>서식 변경 ${formatting.stats.changedRanges}곳</h2><p>${Object.entries(formatting.stats.properties).map(([k, n]) => `${labels[k]} ${n}곳`).join(' · ')}</p><p class="format-scope">서로 대응되는 글자 구간의 서식을 비교합니다. 내용과 서식이 함께 바뀌면 각각 집계합니다. 새로 추가·삭제된 문구, 글자 크기·굵기·밑줄·여백은 이 서식 비교에 포함하지 않습니다.</p>${formatting.incompleteRanges ? `<p class="parse-warning">복잡하게 교체된 문구 ${formatting.incompleteRanges}곳의 일부 서식은 정확히 대응하지 못했습니다. 원본에서 확인해 주세요.</p>` : ''}
+    ${formatting.diffs.length ? formatting.diffs.map((d, i) => formatCardHtml(d, i + 1, navigation)).join('') : '<p class="no-results">비교한 글자에서 글자색·글꼴·자간·장평 변경이 없습니다.</p>'}</section>`;
+}
+
 export function exportHtml(result) {
   const changes = result.diffs.filter(d => d.type !== 'unchanged');
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>문서 신구대조표</title><style>
   body{font:15px/1.7 system-ui,sans-serif;color:#202a30;margin:40px auto;max-width:1100px;padding:0 24px}h1{font-size:28px}p{overflow-wrap:anywhere}.diff-card{border:1px solid #ddd;border-radius:8px;margin:20px 0;break-inside:avoid;overflow:hidden}.diff-heading{padding:10px 16px;background:#f7f7f5;display:flex;gap:14px}.diff-columns{display:grid;grid-template-columns:1fr 1fr}.diff-columns section{padding:16px;min-width:0}.before{border-right:1px solid #ddd}.location,.table-meta{font-size:12px;color:#657076}.block-text,td{white-space:pre-wrap;overflow-wrap:anywhere}mark{color:inherit;border-radius:2px}.removed{background:#fbe2df}.added{background:#d6eee4}.type-badge{font-size:12px;padding:1px 8px;border-radius:4px}.modified{background-color:#fffaf0}.diff-card.modified{background:white}.doc-table{width:100%;border-collapse:collapse;font-size:13px}td{border:1px solid #ddd;padding:8px}.cell-before{background:#fff1ef}.cell-after{background:#edf8f2}.merge-note{display:block;color:#8c510d}.empty-block{color:#888}.parse-warning{background:#fff4d8;padding:16px}.table-scroll{overflow:auto}.footnote{font-size:12px}li{margin:5px 0}@media print{body{max-width:none;margin:0;padding:0;font-size:11px}.diff-card{break-inside:auto}mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}}@page{size:A4 landscape;margin:12mm}
-  .memo-card{border:1px solid #ddd;margin:18px 0;break-inside:avoid}.memo-card section{padding:14px}.memo-text{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope{font-size:12px;color:#657076}
+  .memo-card,.format-card{border:1px solid #ddd;margin:18px 0;break-inside:avoid}.memo-card section,.format-card section{padding:14px}.memo-text,.format-excerpt{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope,.format-scope{font-size:12px;color:#657076}.format-values{width:100%;border-collapse:collapse}.format-values th,.format-values td{border:1px solid #ddd;padding:8px;text-align:left}.format-text{background:#d9edf9}.color-swatch{width:12px;height:12px;margin-right:6px}
   </style></head><body><h1>문서 신구대조표</h1><p>구버전: ${escapeHtml(result.documents.before.name)}<br>신버전: ${escapeHtml(result.documents.after.name)}</p>
   <p>추가 ${result.stats.added} · 삭제 ${result.stats.removed} · 수정 ${result.stats.modified} · 동일 ${result.stats.unchanged} (블록 기준)</p>
   <p>${escapeHtml(result.engine)} · ${escapeHtml(result.createdAt)} · 실제 내용의 일치 여부로 판정 · LLM 미사용</p>
   ${warningsHtml(result)}<ul>${result.limitations.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
   ${result.annotations ? annotationsHtml(result.annotations) : ''}
+  ${result.formatting ? formattingHtml(result.formatting) : ''}
   ${changes.length ? changes.map(d => renderDiff(d, result.documents)).join('') : '<p>비교 대상 본문·표에서 변경을 찾지 못했습니다. 문서 전체가 동일하다는 판정은 아닙니다.</p>'}
   <p>동일한 블록 ${result.stats.unchanged}개는 이 대조표에서 생략했습니다.</p></body></html>`;
 }

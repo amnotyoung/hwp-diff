@@ -119,6 +119,19 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
   }).filter(b => b.width > 0 && b.height > 0);
   const locations = targets.map(target => {
     const base = { id: target.id, type: target.type };
+    if (target.category === 'format') {
+      const range = target.range, context = range?.paragraphText;
+      if (!context) return { ...base, category: 'format', boxes: [], status: 'unresolved', message: '서식 변경 위치를 확인하지 못했습니다.' };
+      const sourceId = range.location?.tableSourceId;
+      const candidates = regions.filter(r => {
+        if (r.type !== 'paragraph') return false;
+        if (!sourceId) return !parentTable(r);
+        for (let p = byId.get(r.parentId); p; p = byId.get(p.parentId)) if (p.type === 'table' && p.sourceId === sourceId) return true;
+        return false;
+      });
+      const match = anchorBoxes([{ context, start: normalizeText(context.slice(0, range.start)).length, end: normalizeText(context.slice(0, range.end)).length }], candidates);
+      return { ...base, category: 'format', boxes: match.boxes, status: match.boxes.length ? 'format' : 'unresolved', message: match.boxes.length ? '서식이 변경된 글자가 있는 문단을 파란색으로 표시했습니다.' : '서식 변경 위치를 정확히 찾지 못했습니다. 옆의 문구와 서식 값을 확인해 주세요.' };
+    }
     if (target.category === 'memo') {
       const memoBase = { ...base, category: 'memo' };
       if (!target.memo) return { ...memoBase, boxes: [], status: 'absent', message: '이 버전에는 해당 메모가 없습니다.' };

@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { DOMParser } from '@xmldom/xmldom';
 import { diffBlocks } from 'kordoc';
-import { textParts } from '../public/text-diff.js';
+import { textParts, textChanges } from '../public/text-diff.js';
 
 export const FORMAT_LABELS = { color: '글자색', font: '글꼴', spacing: '자간', ratio: '장평' };
 const local = n => n.localName ?? n.nodeName?.split(':').pop();
@@ -106,13 +106,40 @@ export async function readHwpxFormatting(bytes) {
 export function compareFormattingParagraphs(before, after) {
   if (before.length * after.length > 2_000_000) throw new Error('서식 비교 문단 한도를 넘었습니다.');
   const aligned = diffBlocks(before, after), diffs = [];
-  let comparedCharacters = 0, unmatchedParagraphs = 0;
+  let comparedCharacters = 0, unmatchedParagraphs = 0, incompleteRanges = 0;
   for (const pair of aligned.diffs) {
     const a = pair.before, b = pair.after;
     if (!a || !b) { unmatchedParagraphs++; continue; }
     let ai = 0, bi = 0, last = null;
-    for (const part of textParts(a.text, b.text)) {
-      if (part.type !== 'equal') { last = null; continue; }
+    function emit(oldAt, oldEnd, newAt, newEnd, changes) {
+      if (!changes.length) { last = null; return; }
+      if (last && last.before.end === oldAt && last.after.end === newAt && JSON.stringify(last.changes) === JSON.stringify(changes)) {
+        last.text += a.text.slice(oldAt, oldEnd); last.before.end = oldEnd; last.after.end = newEnd;
+      } else {
+        last = { id: `format-${diffs.length + 1}`, text: a.text.slice(oldAt, oldEnd), changes,
+          before: { start: oldAt, end: oldEnd, paragraphText: a.text, location: a.location },
+          after: { start: newAt, end: newEnd, paragraphText: b.text, location: b.location } };
+        diffs.push(last); if (diffs.length > 5000) throw new Error('서식 변경 표시 한도를 넘었습니다.');
+      }
+    }
+    const segments = textParts(a.text, b.text).filter(p => p.type === 'equal');
+    for (const c of textChanges(a.text, b.text).filter(c => c.beforeText && c.afterText)) segments.push({ ...c, text: c.beforeText, unequal: c.beforeText.length !== c.afterText.length });
+    segments.sort((x, y) => x.beforeStart - y.beforeStart || x.afterStart - y.afterStart);
+    for (const part of segments) {
+      if (part.unequal) {
+        const left = a.spans.filter(s => s.end > part.beforeStart && s.start < part.beforeEnd), right = b.spans.filter(s => s.end > part.afterStart && s.start < part.afterEnd);
+        const changes = []; let incomplete = false;
+        for (const property of Object.keys(FORMAT_LABELS)) {
+          const oldValues = new Set(left.map(s => s.values[property])), newValues = new Set(right.map(s => s.values[property]));
+          if (oldValues.size !== 1 || newValues.size !== 1) { incomplete = true; continue; }
+          const before = [...oldValues][0], after = [...newValues][0];
+          if (before !== after) changes.push({ property, label: FORMAT_LABELS[property], before, after });
+        }
+        if (incomplete) incompleteRanges++;
+        comparedCharacters += Math.min(part.beforeText.length, part.afterText.length);
+        emit(part.beforeStart, part.beforeEnd, part.afterStart, part.afterEnd, changes);
+        continue;
+      }
       let offset = 0;
       while (offset < part.text.length) {
         const oldAt = part.beforeStart + offset, newAt = part.afterStart + offset;
@@ -124,23 +151,13 @@ export function compareFormattingParagraphs(before, after) {
         const length = Math.min(oldSpan.end - oldAt, newSpan.end - newAt, part.text.length - offset);
         const changes = Object.keys(FORMAT_LABELS).filter(k => oldSpan.values[k] !== newSpan.values[k]).map(property => ({ property, label: FORMAT_LABELS[property], before: oldSpan.values[property], after: newSpan.values[property] }));
         comparedCharacters += length;
-        if (changes.length) {
-          if (last && last.before.end === oldAt && last.after.end === newAt && JSON.stringify(last.changes) === JSON.stringify(changes)) {
-            last.text += a.text.slice(oldAt, oldAt + length); last.before.end += length; last.after.end += length;
-          } else {
-            last = { id: `format-${diffs.length + 1}`, text: a.text.slice(oldAt, oldAt + length), changes,
-              before: { start: oldAt, end: oldAt + length, paragraphText: a.text, location: a.location },
-              after: { start: newAt, end: newAt + length, paragraphText: b.text, location: b.location } };
-            diffs.push(last);
-            if (diffs.length > 5000) throw new Error('서식 변경 표시 한도를 넘었습니다.');
-          }
-        } else last = null;
+        emit(oldAt, oldAt + length, newAt, newAt + length, changes);
         offset += length;
       }
     }
   }
   const properties = Object.fromEntries(Object.keys(FORMAT_LABELS).map(k => [k, diffs.filter(d => d.changes.some(c => c.property === k)).length]));
-  return { available: true, diffs, stats: { changedRanges: diffs.length, properties }, comparedCharacters, unmatchedParagraphs };
+  return { available: true, diffs, stats: { changedRanges: diffs.length, properties }, comparedCharacters, unmatchedParagraphs, incompleteRanges };
 }
 
 export async function compareFormatting(oldFile, newFile, formats) {

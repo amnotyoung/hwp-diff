@@ -5,6 +5,8 @@ import { readHwpxFormatting, compareFormatting } from '../src/formatting.mjs';
 import { compareDocuments } from '../src/engine.mjs';
 import { editHwpx, cloneStyle, formatSamples, all } from './helpers/format-fixture.mjs';
 import { memoFixture } from './helpers/memo-fixture.mjs';
+import { formattingHtml, exportHtml, previewTargets } from '../public/report.js';
+import { previewDocument } from '../src/preview.mjs';
 const file = bytes => ({ name: 'test.hwpx', bytes });
 const compare = (a, b) => compareFormatting(file(a), file(b), ['hwpx', 'hwpx']);
 
@@ -97,4 +99,53 @@ test('text and formatting can change together without conflating their counts', 
   const r = await compareDocuments(file(a), file(b));
   assert.equal(r.stats.modified, 1); assert.ok(r.formatting.stats.changedRanges > 0);
   assert.ok(r.formatting.diffs.every(d => d.changes.every(c => c.property === 'color')));
+});
+
+test('formatting changed only on a replaced digit is still detected', async () => {
+  const a = new Uint8Array(await markdownToHwpx('총 120명입니다'));
+  const b = await editHwpx(a, (h, s) => {
+    all(s, 't').find(t => t.textContent === '총 120명입니다').textContent = '총 180명입니다';
+    cloneStyle(h, s, '총 180명입니다', { color: '#FF0000' }, [3, 4]);
+  });
+  const r = await compareDocuments(file(a), file(b));
+  assert.equal(r.stats.modified, 1); assert.equal(r.formatting.stats.changedRanges, 1);
+  assert.equal(r.formatting.diffs[0].text, '2'); assert.equal(r.formatting.diffs[0].after.paragraphText.slice(r.formatting.diffs[0].after.start, r.formatting.diffs[0].after.end), '8');
+});
+
+test('uniform formatting is compared across replacements of different lengths', async () => {
+  const a = new Uint8Array(await markdownToHwpx('사업 담당은 박수입니다'));
+  const b = await editHwpx(a, (h, s) => {
+    all(s, 't').find(t => t.textContent === '사업 담당은 박수입니다').textContent = '사업 담당은 최민호입니다';
+    cloneStyle(h, s, '사업 담당은 최민호입니다', { color: '#FF0000' }, [7, 10]);
+  });
+  const r = await compareDocuments(file(a), file(b));
+  assert.equal(r.stats.modified, 1); assert.equal(r.formatting.stats.changedRanges, 1); assert.equal(r.formatting.incompleteRanges, 0);
+});
+
+test('ambiguous mixed styles in a length-changing replacement are explicitly marked incomplete', async () => {
+  const a = new Uint8Array(await markdownToHwpx('사업 담당은 박수입니다'));
+  const b = await editHwpx(a, (h, s) => {
+    all(s, 't').find(t => t.textContent === '사업 담당은 박수입니다').textContent = '사업 담당은 최민호입니다';
+    cloneStyle(h, s, '사업 담당은 최민호입니다', { color: '#FF0000' }, [7, 9]);
+  });
+  const result = await compare(a, b);
+  assert.equal(result.incompleteRanges, 1); assert.match(formattingHtml(result), /정확히 대응하지 못했습니다/);
+});
+
+test('formatting report shows before/after values, escapes names and contains no app-only export buttons', async () => {
+  const r = await compareDocuments(...await formatSamples());
+  const html = formattingHtml(r.formatting, true);
+  for (const expected of ['글자색', '글꼴', '자간', '장평', '#FF0000', '-5%', '95%', 'data-preview-format']) assert.ok(html.includes(expected));
+  assert.ok(exportHtml(r).includes('서식 변경 5곳'));
+  assert.ok(!exportHtml(r).includes('data-preview-format'));
+  r.formatting.diffs[0].changes[0].after = '<img src=x onerror=alert(1)>';
+  assert.ok(!formattingHtml(r.formatting).includes('<img')); assert.ok(formattingHtml(r.formatting).includes('&lt;img'));
+});
+
+test('formatting locations resolve paragraphs and partial text inside table cells', async () => {
+  const docs = await formatSamples(), result = await compareDocuments(...docs);
+  const targets = previewTargets(result, 'new');
+  assert.equal(targets.filter(t => t.category === 'format').length, 5);
+  const p = await previewDocument(docs[1], 1, { targets, focusId: 'format-5', jump: true });
+  assert.ok(p.locations.filter(l => l.category === 'format').every(l => l.status === 'format' && l.boxes.length));
 });
