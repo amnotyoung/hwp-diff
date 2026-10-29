@@ -22,7 +22,7 @@ function form(old = files.oldFile, fresh = files.newFile) {
 }
 
 test('UI assets and local health served with no-store and restrictive CSP', async () => {
-  for (const path of ['/', '/app.js', '/report.js', '/style.css', '/api/health']) {
+  for (const path of ['/', '/launch-guard.js', '/app.js', '/report.js', '/style.css', '/api/health']) {
     const res = await fetch(base + path); assert.equal(res.status, 200);
     assert.equal(res.headers.get('cache-control'), 'no-store');
     assert.match(res.headers.get('content-security-policy'), /default-src 'none'/);

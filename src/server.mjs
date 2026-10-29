@@ -3,12 +3,14 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { spawn } from 'node:child_process';
 
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_BODY = 2 * MAX_FILE + 1024 * 1024;
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/launch-guard.js', ['launch-guard.js', 'text/javascript; charset=utf-8']],
   ['/report.js', ['report.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
@@ -157,5 +159,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.error(error.code === 'EADDRINUSE' ? `${port} 포트가 사용 중입니다. PORT 환경변수로 다른 포트를 지정해 주세요.` : error.message);
     process.exitCode = 1;
   });
-  server.listen(port, '127.0.0.1', () => console.log(`문서 사이 — http://127.0.0.1:${port}\n이 PC에서만 접속할 수 있습니다. 종료: Ctrl+C`));
+  server.listen(port, '127.0.0.1', () => {
+    const url = `http://127.0.0.1:${port}`;
+    console.log(`문서 사이 — ${url}\n이 PC에서만 접속할 수 있습니다. 종료: Ctrl+C`);
+    if (process.platform === 'win32' && process.env.HWP_DIFF_OPEN_BROWSER === '1') {
+      const browser = spawn('cmd.exe', ['/d', '/c', 'start', '', url], { windowsHide: true, stdio: 'ignore' });
+      browser.on('error', () => console.error(`브라우저를 열지 못했습니다. ${url} 주소를 직접 열어 주세요.`));
+    }
+  });
 }

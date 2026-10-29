@@ -8,3 +8,5 @@
 /* Keep a selected region within the visible workspace, even when a page fits its width. */
 .page-viewport{height:clamp(260px,calc(100vh - 365px),650px)}.preview-workspace{scroll-margin-top:190px}@media(max-width:560px){.page-viewport{height:clamp(280px,calc(100vh - 380px),460px)}.preview-workspace{scroll-margin-top:250px}}
 #results{overflow-anchor:none}
+/* Direct-file entry must show a useful launch screen, not a broken application. */
+.launch-help{max-width:660px;margin:8vh auto;padding:32px;background:#fffefa;border:1px solid #dce3d5;border-radius:12px;box-shadow:0 8px 30px #26382008}.launch-help .brand-icon{margin-bottom:22px}.launch-help h1{font-size:25px}.launch-help p,.launch-help li{font-size:14px;line-height:1.9;color:#53664b}.launch-help ol{padding-left:23px}.launch-help .launch-note{font-size:12px;color:#77856d;margin-top:22px}@media(max-width:700px){.launch-help{margin:20px 12px;padding:25px}}
