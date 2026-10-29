@@ -103,27 +103,99 @@ export async function readHwpxFormatting(bytes) {
   return paragraphs;
 }
 
+function labeledParagraph(text) {
+  const match = text.match(/^\s*(?:[o○ㅇ•●▪◦-]\s*)?\(([^)\n]{2,70})\)\s*/u)
+    ?? text.match(/^\s*(?:[-•●]\s*)?([A-Za-z][A-Za-z0-9 /&()'’-]{2,70})\s*:\s*/);
+  return match ? { label: match[1].normalize('NFC').toLocaleLowerCase().replace(/\s+/g, ' ').trim(), body: text.slice(match[0].length).trim() } : null;
+}
+
+function possibleStyleChange(left, right) {
+  return Object.keys(FORMAT_LABELS).some(property => {
+    const a = new Set(left.map(s => s.values[property])), b = new Set(right.map(s => s.values[property]));
+    return a.size !== 1 || b.size !== 1 || [...a][0] !== [...b][0];
+  });
+}
+
+function localizedReplacement(change, before, after) {
+  if (![change.beforeText, change.afterText].every(text => /^[\p{L}\p{N}]+$/u.test(text) && Array.from(text).length <= 32)) return false;
+  let left = '', right = '';
+  for (let n = 1; n <= 32 && change.beforeStart >= n && change.afterStart >= n; n++) {
+    const a = before[change.beforeStart - n], b = after[change.afterStart - n];
+    if (a !== b) break; left = a + left;
+  }
+  for (let n = 0; n < 32 && change.beforeEnd + n < before.length && change.afterEnd + n < after.length; n++) {
+    const a = before[change.beforeEnd + n], b = after[change.afterEnd + n];
+    if (a !== b) break; right += a;
+  }
+  const contextLength = (left + right).replace(/\s/g, '').length;
+  return contextLength >= 6 || /^\d+$/.test(change.beforeText) && /^\d+$/.test(change.afterText) && contextLength >= 2;
+}
+
+function replacementBounds(change, before, after) {
+  const range = (text, start, end) => {
+    const word = character => character != null && /[\p{L}\p{N}·_-]/u.test(character);
+    while (start > 0 && word(text[start - 1])) start--;
+    while (end < text.length && word(text[end])) end++;
+    return [start, end];
+  };
+  const [beforeStart, beforeEnd] = range(before, change.beforeStart, change.beforeEnd), [afterStart, afterEnd] = range(after, change.afterStart, change.afterEnd);
+  return { beforeStart, beforeEnd, afterStart, afterEnd };
+}
+
+function safeEqualParts(part, blocked) {
+  const cuts = blocked.flatMap(range => ['before', 'after'].map(side => [
+    Math.max(0, range[`${side}Start`] - part[`${side}Start`]), Math.min(part.text.length, range[`${side}End`] - part[`${side}Start`]),
+  ])).filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
+  const parts = []; let at = 0;
+  const append = end => { if (end > at) parts.push({ ...part, text: part.text.slice(at, end), beforeStart: part.beforeStart + at, afterStart: part.afterStart + at }); };
+  for (const [start, end] of cuts) { append(start); at = Math.max(at, end); }
+  append(part.text.length); return parts;
+}
+
 export function compareFormattingParagraphs(before, after) {
   if (before.length * after.length > 2_000_000) throw new Error('서식 비교 문단 한도를 넘었습니다.');
-  const aligned = diffBlocks(before, after), diffs = [];
+  const aligned = diffBlocks(before, after), diffs = [], uncertainMappings = [];
   let comparedCharacters = 0, unmatchedParagraphs = 0, incompleteRanges = 0;
   for (const pair of aligned.diffs) {
     const a = pair.before, b = pair.after;
     if (!a || !b) { unmatchedParagraphs++; continue; }
+    const oldLabel = labeledParagraph(a.text), newLabel = labeledParagraph(b.text);
+    const conflictingLabels = oldLabel && newLabel && oldLabel.label !== newLabel.label;
+    const uncertain = (reason, beforeText, afterText) => {
+      uncertainMappings.push({ reason, before: { text: beforeText, location: a.location }, after: { text: afterText, location: b.location } });
+      if (uncertainMappings.length > 5000) throw new Error('서식 대응 확인 한도를 넘었습니다.');
+    };
+    if (conflictingLabels && oldLabel.body !== newLabel.body) {
+      if (possibleStyleChange(a.spans, b.spans)) uncertain('different-heading', a.text, b.text);
+      unmatchedParagraphs += 2; continue;
+    }
     let ai = 0, bi = 0, last = null;
-    function emit(oldAt, oldEnd, newAt, newEnd, changes) {
+    function emit(oldAt, oldEnd, newAt, newEnd, changes, mapping = 'same-text') {
       if (!changes.length) { last = null; return; }
       if (last && last.before.end === oldAt && last.after.end === newAt && JSON.stringify(last.changes) === JSON.stringify(changes)) {
         last.text += a.text.slice(oldAt, oldEnd); last.before.end = oldEnd; last.after.end = newEnd;
+        if (last.mapping !== mapping) last.mapping = 'mixed';
       } else {
-        last = { id: `format-${diffs.length + 1}`, text: a.text.slice(oldAt, oldEnd), changes,
+        last = { id: `format-${diffs.length + 1}`, text: a.text.slice(oldAt, oldEnd), changes, mapping,
           before: { start: oldAt, end: oldEnd, paragraphText: a.text, location: a.location },
           after: { start: newAt, end: newEnd, paragraphText: b.text, location: b.location } };
         diffs.push(last); if (diffs.length > 5000) throw new Error('서식 변경 표시 한도를 넘었습니다.');
       }
     }
-    const segments = textParts(a.text, b.text).filter(p => p.type === 'equal');
-    for (const c of textChanges(a.text, b.text).filter(c => c.beforeText && c.afterText)) segments.push({ ...c, text: c.beforeText, unequal: c.beforeText.length !== c.afterText.length });
+    const equalParts = textParts(a.text, b.text).filter(p => p.type === 'equal'), replacements = [], blocked = [];
+    for (const c of textChanges(a.text, b.text).filter(c => c.beforeText && c.afterText)) {
+      if (conflictingLabels || !localizedReplacement(c, a.text, b.text)) {
+        const range = replacementBounds(c, a.text, b.text);
+        if (blocked.some(r => JSON.stringify(r) === JSON.stringify(range))) continue;
+        blocked.push(range);
+        const left = a.spans.filter(s => s.end > range.beforeStart && s.start < range.beforeEnd), right = b.spans.filter(s => s.end > range.afterStart && s.start < range.afterEnd);
+        if (possibleStyleChange(left, right)) uncertain('rewritten-text', a.text.slice(range.beforeStart, range.beforeEnd), b.text.slice(range.afterStart, range.afterEnd));
+        continue;
+      }
+      replacements.push({ ...c, text: c.beforeText, replacement: true, unequal: c.beforeText.length !== c.afterText.length });
+    }
+    const segments = [...equalParts.flatMap(part => safeEqualParts(part, blocked)), ...replacements.filter(part => !blocked.some(r =>
+      part.beforeStart < r.beforeEnd && part.beforeEnd > r.beforeStart || part.afterStart < r.afterEnd && part.afterEnd > r.afterStart))];
     segments.sort((x, y) => x.beforeStart - y.beforeStart || x.afterStart - y.afterStart);
     for (const part of segments) {
       if (part.unequal) {
@@ -137,7 +209,7 @@ export function compareFormattingParagraphs(before, after) {
         }
         if (incomplete) incompleteRanges++;
         comparedCharacters += Math.min(part.beforeText.length, part.afterText.length);
-        emit(part.beforeStart, part.beforeEnd, part.afterStart, part.afterEnd, changes);
+        emit(part.beforeStart, part.beforeEnd, part.afterStart, part.afterEnd, changes, 'replacement');
         continue;
       }
       let offset = 0;
@@ -151,13 +223,13 @@ export function compareFormattingParagraphs(before, after) {
         const length = Math.min(oldSpan.end - oldAt, newSpan.end - newAt, part.text.length - offset);
         const changes = Object.keys(FORMAT_LABELS).filter(k => oldSpan.values[k] !== newSpan.values[k]).map(property => ({ property, label: FORMAT_LABELS[property], before: oldSpan.values[property], after: newSpan.values[property] }));
         comparedCharacters += length;
-        emit(oldAt, oldAt + length, newAt, newAt + length, changes);
+        emit(oldAt, oldAt + length, newAt, newAt + length, changes, part.replacement ? 'replacement' : 'same-text');
         offset += length;
       }
     }
   }
   const properties = Object.fromEntries(Object.keys(FORMAT_LABELS).map(k => [k, diffs.filter(d => d.changes.some(c => c.property === k)).length]));
-  return { available: true, diffs, stats: { changedRanges: diffs.length, properties }, comparedCharacters, unmatchedParagraphs, incompleteRanges };
+  return { available: true, diffs, stats: { changedRanges: diffs.length, properties }, comparedCharacters, unmatchedParagraphs, incompleteRanges, uncertainMappings };
 }
 
 export async function compareFormatting(oldFile, newFile, formats) {

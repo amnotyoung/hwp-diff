@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { markdownToHwpx } from 'kordoc';
-import { readHwpxFormatting, compareFormatting } from '../src/formatting.mjs';
+import { readHwpxFormatting, compareFormatting, compareFormattingParagraphs } from '../src/formatting.mjs';
 import { compareDocuments } from '../src/engine.mjs';
 import { editHwpx, cloneStyle, formatSamples, all } from './helpers/format-fixture.mjs';
 import { memoFixture } from './helpers/memo-fixture.mjs';
@@ -120,6 +120,53 @@ test('formatting changed only on a replaced digit is still detected', async () =
   const r = await compareDocuments(file(a), file(b));
   assert.equal(r.stats.modified, 1); assert.equal(r.formatting.stats.changedRanges, 1);
   assert.equal(r.formatting.diffs[0].text, '2'); assert.equal(r.formatting.diffs[0].after.paragraphText.slice(r.formatting.diffs[0].after.start, r.formatting.diffs[0].after.end), '8');
+  assert.equal(r.formatting.diffs[0].mapping, 'replacement');
+});
+
+const styledParagraph = (text, spacing = 0, start = 0, end = text.length) => {
+  const values = value => ({ color: '#000000', font: '맑은 고딕', spacing: value, ratio: 100 });
+  const spans = [];
+  if (start) spans.push({ start: 0, end: start, values: values(0) });
+  spans.push({ start, end, values: values(spacing) });
+  if (end < text.length) spans.push({ start: end, end: text.length, values: values(0) });
+  return { type: 'paragraph', text, spans, location: { section: 'Contents/section0.xml', paragraph: 1, row: 7, col: 2, tableSourceId: 'test-table' } };
+};
+
+test('different labeled paragraphs are excluded instead of pairing analysis text with selection text', () => {
+  const a = styledParagraph(' o (분석 계획) 데이터 분석·정리 결과를 직원들에게 공유합니다.');
+  const b = styledParagraph(' o (사례집 제작) 선정 사례 결과를 직원들에게 공유합니다.', -4);
+  for (const [old, fresh] of [[a, b], [b, a]]) {
+    const result = compareFormattingParagraphs([old], [fresh]);
+    assert.equal(result.stats.changedRanges, 0);
+    assert.equal(result.uncertainMappings.length, 1);
+    assert.equal(result.uncertainMappings[0].reason, 'different-heading');
+    assert.match(formattingHtml(result), /서식 집계에서 제외한 문구 1쌍/);
+  }
+});
+
+test('incidental equal letters inside a rewritten phrase do not become confirmed format matches', () => {
+  const a = styledParagraph('담당 업무는 데이터 분석·정리 후 완료합니다.');
+  const text = '담당 업무는 선정 후 완료합니다.', at = text.indexOf('선정');
+  const b = styledParagraph(text, -4, at, at + 2);
+  const result = compareFormattingParagraphs([a], [b]);
+  assert.equal(result.diffs.length, 0);
+  assert.ok(result.uncertainMappings.some(item => item.after.text === '선정'));
+});
+
+test('unchanged body formatting remains comparable when a heading is renamed', () => {
+  const a = styledParagraph(' o (기존 제목) 이 본문은 그대로 유지합니다.');
+  const b = styledParagraph(' o (새 제목) 이 본문은 그대로 유지합니다.', -4);
+  const result = compareFormattingParagraphs([a], [b]);
+  assert.ok(result.diffs.some(d => d.text.includes('이 본문은 그대로 유지합니다.')));
+});
+
+test('rewritten paragraphs with identical uniform styles do not generate unnecessary format warnings', () => {
+  const a = styledParagraph(' o (분석 계획) 데이터 분석 결과를 직원들에게 공유합니다.');
+  const b = styledParagraph(' o (사례집 제작) 선정 사례 결과를 직원들에게 공유합니다.');
+  const result = compareFormattingParagraphs([a], [b]);
+  assert.equal(result.diffs.length, 0); assert.equal(result.uncertainMappings.length, 0);
+  const uncertain = { ...result, uncertainMappings: [{ reason: 'rewritten-text', before: { text: '<script>x</script>' }, after: { text: '문구' } }] };
+  assert.ok(!formattingHtml(uncertain).includes('<script>')); assert.match(formattingHtml(uncertain), /&lt;script&gt;/);
 });
 
 test('uniform formatting is compared across replacements of different lengths', async () => {
@@ -146,7 +193,7 @@ test('formatting report shows before/after values, escapes names and contains no
   const r = await compareDocuments(...await formatSamples());
   const html = formattingHtml(r.formatting, true);
   for (const expected of ['글자색', '글꼴', '자간', '장평', '#FF0000', '-5%', '95%', 'data-preview-format']) assert.ok(html.includes(expected));
-  assert.ok(exportHtml(r).includes('서식 변경 5곳'));
+  assert.ok(exportHtml(r).includes('서식 변경 5구간'));
   assert.ok(!exportHtml(r).includes('data-preview-format'));
   r.formatting.diffs[0].changes[0].after = '<img src=x onerror=alert(1)>';
   assert.ok(!formattingHtml(r.formatting).includes('<img')); assert.ok(formattingHtml(r.formatting).includes('&lt;img'));

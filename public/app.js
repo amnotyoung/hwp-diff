@@ -175,8 +175,8 @@ function showResults() {
   $('#warnings').innerHTML = warningsHtml(result);
   $('#critical-notices').replaceChildren();
   if (result.formatting?.available === false) $('#critical-notices').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
-  if (result.formatting?.incompleteRanges) $('#critical-notices').insertAdjacentHTML('beforeend', '<p class="parse-warning">일부 문구의 서식 대응을 확인하지 못했습니다. 서식 탭에서 확인해 주세요.</p>');
-  $('#notice-label').textContent = result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : result.warnings.length || result.formatting?.incompleteRanges ? '주의사항' : '안내';
+  if (result.formatting?.incompleteRanges || result.formatting?.uncertainMappings?.length) $('#critical-notices').insertAdjacentHTML('beforeend', '<p class="parse-warning">서식을 비교하지 못한 구간이 있습니다. 서식 탭에서 확인하세요.</p>');
+  $('#notice-label').textContent = result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : result.warnings.length || result.formatting?.incompleteRanges || result.formatting?.uncertainMappings?.length ? '주의사항' : '안내';
   $('#menu-file-info').innerHTML = `<p><strong>구버전</strong><br>${escapeHtml(result.documents.before.name)}</p><p><strong>신버전</strong><br>${escapeHtml(result.documents.after.name)}</p>`;
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
   for (const [side, key] of [['old', 'before'], ['new', 'after']]) {
@@ -241,12 +241,12 @@ function updateNavigator() {
   else if (category === 'format') selectedFormatId = active;
   else selectedId = active;
   const position = changes.findIndex(d => d.id === active);
-  const scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : '내용 항목';
+  const scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : '내용 변경';
   const description = d => category === 'format' ? `${d.changes.map(c => c.label).join('·')} · ${d.text}` : category === 'memo' ? `${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
   $('#change-list').innerHTML = changes.map((d, i) => `<option value="${escapeHtml(d.id)}">${scope} ${i + 1}/${changes.length} · ${escapeHtml(description(d).slice(0, 90))}</option>`).join('') || `<option value="">${scope} 없음</option>`;
   $('#change-list').value = active ?? '';
   $('#change-position').textContent = changes.length ? `${scope} ${position + 1}/${changes.length}` : `${scope} 없음`;
-  $('#change-list').setAttribute('aria-label', `${scope} 선택`);
+  $('#change-list').setAttribute('aria-label', `${scope}${category === 'content' ? ' 항목' : category === 'format' ? ' 구간' : ''} 선택`);
   $('#change-list').title = changes[position] ? description(changes[position]).slice(0, 150) : '해당 변경 없음';
   $('#change-list').disabled = !!controller || !changes.length;
   $('#previous-change').disabled = !!controller || position <= 0;

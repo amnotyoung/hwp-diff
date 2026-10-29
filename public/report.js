@@ -80,7 +80,7 @@ function briefEdit(before, after, side) {
 }
 
 export function previewExplanation(diff, category = 'content', segmentIndex = 0) {
-  if (!diff) return '<p>현재 조건에 해당하는 변경이 없습니다.</p>';
+  if (!diff) return '<p>현재 조건에 해당하는 내용 변경 항목이 없습니다.</p>';
   let title, before = '', after = '', note = '';
   if (category === 'format') {
     title = `서식 변경 · ${diff.text}`;
@@ -266,7 +266,7 @@ export function formatCardHtml(diff, number, navigation = false, prefix = '') {
   const swatch = v => /^#[0-9A-F]{6}$/i.test(v) ? `<svg class="color-swatch" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" fill="${escapeHtml(v)}"/></svg>` : '';
   const excerpt = range => `${range.start > 48 ? '…' : ''}${escapeHtml(range.paragraphText.slice(Math.max(0, range.start - 48), range.start))}<mark class="format-text">${escapeHtml(range.paragraphText.slice(range.start, range.end))}</mark>${escapeHtml(range.paragraphText.slice(range.end, range.end + 48))}${range.paragraphText.length > range.end + 48 ? '…' : ''}`;
   const location = loc => `${Number(loc.section.match(/\d+/)?.[0] ?? 0) + 1}구역 · 문단 ${loc.paragraph}${loc.row ? ` · 표 ${loc.row}행 ${loc.col}열` : ''}`;
-  return `<article class="format-card" id="${escapeHtml(prefix + diff.id)}"><div class="diff-heading"><span class="type-badge format-badge">서식 변경</span><strong>구간 ${number}</strong>${navigation ? `<button class="format-location-button" data-preview-format="${escapeHtml(diff.id)}" aria-label="서식 구간 ${number} 원문 위치 보기">원문 위치 보기 ↗</button>` : ''}</div>
+  return `<article class="format-card" id="${escapeHtml(prefix + diff.id)}"><div class="diff-heading"><span class="type-badge format-badge">서식 변경</span><strong>구간 ${number}</strong>${diff.mapping && diff.mapping !== 'same-text' ? '<span class="format-mapping-note">내용도 바뀐 구간</span>' : ''}${navigation ? `<button class="format-location-button" data-preview-format="${escapeHtml(diff.id)}" aria-label="서식 구간 ${number} 원문 위치 보기">원문 위치 보기 ↗</button>` : ''}</div>
     <div class="diff-columns">${['before', 'after'].map(side => `<section class="${side}"><p class="cell-side-label">${side === 'before' ? '구버전' : '신버전'} · ${escapeHtml(location(diff[side].location))}</p><p class="format-excerpt">${excerpt(diff[side])}</p></section>`).join('')}</div>
     <table class="format-values"><thead><tr><th scope="col">서식</th><th scope="col">구버전</th><th scope="col">신버전</th></tr></thead><tbody>${diff.changes.map(change => `<tr><th scope="row">${escapeHtml(change.label)}</th><td>${change.property === 'color' ? swatch(change.before) : ''}${value(change.property, change.before)}</td><td>${change.property === 'color' ? swatch(change.after) : ''}${value(change.property, change.after)}</td></tr>`).join('')}</tbody></table></article>`;
 }
@@ -274,8 +274,10 @@ export function formatCardHtml(diff, number, navigation = false, prefix = '') {
 export function formattingHtml(formatting, navigation = false) {
   if (!formatting?.available) return `<p class="parse-warning">${escapeHtml(formatting?.message ?? '서식 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
   const labels = { color: '글자색', font: '글꼴', spacing: '자간', ratio: '장평' };
-  return `<section class="format-results"><h2>서식 변경 ${formatting.stats.changedRanges}곳</h2><p>${Object.entries(formatting.stats.properties).map(([k, n]) => `${labels[k]} ${n}곳`).join(' · ')}</p><p class="format-scope">서로 대응되는 글자 구간의 서식을 비교합니다. 내용과 서식이 함께 바뀌면 각각 집계합니다. 새로 추가·삭제된 문구, 글자 크기·굵기·밑줄·여백은 이 서식 비교에 포함하지 않습니다.</p>${formatting.incompleteRanges ? `<p class="parse-warning">복잡하게 교체된 문구 ${formatting.incompleteRanges}곳의 일부 서식은 정확히 대응하지 못했습니다. 원본에서 확인해 주세요.</p>` : ''}
-    ${formatting.diffs.length ? formatting.diffs.map((d, i) => formatCardHtml(d, i + 1, navigation)).join('') : '<p class="no-results">비교한 글자에서 글자색·글꼴·자간·장평 변경이 없습니다.</p>'}</section>`;
+  const uncertain = formatting.uncertainMappings ?? [];
+  const excluded = uncertain.length ? `<details class="parse-warning format-exclusions"><summary>서식 집계에서 제외한 문구 ${uncertain.length}쌍</summary><p>같은 부분인지 확인하기 어려운 문구입니다. 원본 파일에서 확인하세요.</p>${uncertain.map(item => `<section><p>${item.reason === 'different-heading' ? '소제목이 달라 같은 문단으로 연결하지 않았습니다.' : '문구가 크게 바뀌어 서식을 비교하지 않았습니다.'}</p><div class="diff-columns">${['before', 'after'].map(side => `<p><strong>${side === 'before' ? '구버전' : '신버전'}</strong><br>${escapeHtml(item[side].text.slice(0, 240))}${item[side].text.length > 240 ? '…' : ''}</p>`).join('')}</div></section>`).join('')}</details>` : '';
+  return `<section class="format-results"><h2>서식 변경 ${formatting.stats.changedRanges}구간</h2><p>${Object.entries(formatting.stats.properties).map(([k, n]) => `${labels[k]} ${n}구간`).join(' · ')}</p><p class="format-scope">같은 문구의 서식을 비교합니다. 앞뒤 문맥이 같은 짧은 문구를 고친 경우에는 내용과 서식을 각각 집계합니다. 새로 추가·삭제된 문구, 글자 크기·굵기·밑줄·여백은 포함하지 않습니다.</p>${excluded}${formatting.incompleteRanges ? `<p class="parse-warning">복잡하게 교체된 문구 ${formatting.incompleteRanges}곳의 일부 서식은 정확히 대응하지 못했습니다. 원본에서 확인해 주세요.</p>` : ''}
+    ${formatting.diffs.length ? formatting.diffs.map((d, i) => formatCardHtml(d, i + 1, navigation)).join('') : `<p class="no-results">${uncertain.length ? '확인된 서식 변경은 없습니다. 제외한 구간은 원본에서 확인하세요.' : '비교한 글자에서 글자색·글꼴·자간·장평 변경이 없습니다.'}</p>`}</section>`;
 }
 
 export function exportHtml(result) {

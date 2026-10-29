@@ -574,6 +574,10 @@ html { scrollbar-gutter:stable; }
 .preview-inline-tools .compact-zoom-label { display:inline; font-size:14px; }
 .page-input-error { margin:0 0 8px; padding:8px 12px; color:var(--red); background:var(--removed-tint); font-size:14px; flex-shrink:0; }
 .filter-unit { margin-left:2px; font-size:11px; font-weight:400; }
+.format-exclusions>section { padding:12px 0; border-top:1px solid var(--line); }
+.format-exclusions .diff-columns { gap:16px; }
+.format-exclusions .diff-columns>p { margin:0; overflow-wrap:anywhere; }
+.format-mapping-note { color:var(--muted); font-size:13px; }
 @media(max-width:800px) {
   :root { --app-gutter:16px; }
   .filters button { flex-direction:column; gap:0; padding:4px 6px; }
