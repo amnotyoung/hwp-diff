@@ -1,4 +1,4 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary } from './report.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -7,6 +7,8 @@ let selectedId = null, contentScroll = 0, contentSelectedId = null;
 let contentPositionSaved = false;
 let previewLocations = { old: [], new: [] }, previewData = { old: null, new: null };
 let selectedMemoId = null, memoScroll = 0, memoEntryId = null;
+let previewOpened = false;
+const previewScrolls = new Map();
 const activeFocusId = () => selectedMemoId ?? selectedId;
 function updateFiles() {
   for (const side of ['old', 'new']) {
@@ -23,6 +25,7 @@ function clearResults() {
   selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files');
   contentPositionSaved = false;
   selectedMemoId = null; memoScroll = 0; memoEntryId = null;
+  previewOpened = false; previewScrolls.clear();
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-canvas`).hidden = true; $(`#${side}-overlays`).replaceChildren(); }
@@ -93,6 +96,8 @@ function showResults() {
   const memoStats = result.annotations?.stats;
   const memoChanges = memoStats ? memoStats.added + memoStats.removed + memoStats.modified : 0;
   $('#result-title').textContent = memoChanges ? `본문 변경 ${total}개 · 메모 변경 ${memoChanges}개` : total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
+  const changed = result.diffs.filter(d => d.type !== 'unchanged');
+  if (changed.length === 1 && !memoChanges) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   const memos = result.annotations?.diffs ?? [];
@@ -121,7 +126,7 @@ function filteredDiffs() {
 function renderList() {
   if (!result) return;
   const diffs = filteredDiffs();
-  $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true)).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
+  $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true, $('#search').value.trim())).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
   $('#load-more').hidden = diffs.length <= shown;
   $('#load-more').textContent = `다음 50개 보기 (${Math.min(shown, diffs.length)} / ${diffs.length})`;
   document.querySelectorAll('[data-filter]').forEach(button => { const selected = button.dataset.filter === filter; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
@@ -187,6 +192,7 @@ $('#export-json').addEventListener('click', () => { if (result) download(JSON.st
 function setView(preview) {
   const memoView = preview === 'memos'; preview = preview === true;
   const wasPreview = !$('#preview-panel').hidden;
+  if (wasPreview && !preview) for (const side of ['old', 'new']) savePreviewScroll(side);
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
   $('#content-panel').hidden = preview || memoView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView;
   const memoOnlyPreview = preview && result && !result.diffs.some(d => d.type !== 'unchanged');
@@ -211,6 +217,7 @@ function updatePageButtons() {
   }
 }
 async function loadPreview(side, page, jump = false) {
+  if (previewOpened) savePreviewScroll(side);
   const location = previewLocations[side].find(l => l.id === activeFocusId());
   if (jump && location?.boxes.length) page = location.boxes[0].page;
   const key = `${side}:${page}`;
@@ -243,6 +250,7 @@ async function loadPreview(side, page, jump = false) {
     drawOverlays(side);
     await img.decode().catch(() => {});
     if (jump) scrollToRegion(side);
+    else restorePreviewScroll(side);
   } catch (error) {
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
   }
@@ -259,6 +267,7 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
       await loadPreview(side, page, jump);
     }
   } finally { controller = null; setBusy(false); }
+  previewOpened = true;
 }
 function jumpToDiff(id) {
   if (controller) return;
@@ -284,6 +293,11 @@ function jumpToMemo(id) {
 $('#view-content').addEventListener('click', () => { selectedMemoId = null; setView(false); });
 $('#view-memos').addEventListener('click', () => setView('memos'));
 $('#view-preview').addEventListener('click', () => {
+  if (previewOpened) {
+    setView(true); showSelectedDetail();
+    for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); }
+    return;
+  }
   const firstMemo = result?.annotations?.diffs?.[0]?.id;
   if (selectedMemoId || (!$('#memo-panel').hidden && firstMemo) || (!selectedId && firstMemo)) jumpToMemo(selectedMemoId ?? firstMemo);
   else selectedId ? jumpToDiff(selectedId) : showPreview();
@@ -338,4 +352,12 @@ function scrollToRegion(side) {
   if (!box) return;
   const scale = canvas.getBoundingClientRect().width / data.width;
   viewport.scrollTo({ top: Math.max(0, box.y * scale - 65), left: Math.max(0, box.x * scale - 35), behavior: 'instant' });
+}
+function savePreviewScroll(side) {
+  const viewport = $(`#${side}-viewport`);
+  if (!$('#preview-panel').hidden && !$(`#${side}-canvas`).hidden) previewScrolls.set(`${side}:${previewPages[side]}`, { top: viewport.scrollTop, left: viewport.scrollLeft });
+}
+function restorePreviewScroll(side) {
+  const saved = previewScrolls.get(`${side}:${previewPages[side]}`) ?? { top: 0, left: 0 };
+  $(`#${side}-viewport`).scrollTo(saved.left, saved.top);
 }

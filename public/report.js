@@ -1,3 +1,4 @@
+import { textParts, textChanges, changeAnchors, findOccurrences } from './text-diff.js';
 export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일' };
 export function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,38 +16,51 @@ export function previewTargets(result, side) {
   const body = result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
     id: d.id, type: d.type, block: old ? d.before : d.after,
     anchor: old ? d.oldAnchor : d.newAnchor,
-    cells: d.cells.map(c => ({ row: c.row, col: c.col })),
+    cells: d.cells.map(c => ({ row: c.row, col: c.col, anchors: changeAnchors(c.before?.text ?? '', c.after?.text ?? '', old ? 'before' : 'after') })),
+    textAnchors: d.cells.length ? [] : changeAnchors(blockText(d.before), blockText(d.after), old ? 'before' : 'after'),
   }));
   const memos = (result.annotations?.diffs ?? []).map(d => ({ id: d.id, category: 'memo', type: d.type, memo: old ? d.before : d.after }));
   return [...body, ...memos];
 }
 
-// Exact character diff for the changed region; bound quadratic work for long paragraphs.
 export function highlight(before = '', after = '') {
-  const a = Array.from(before), b = Array.from(after);
-  let start = 0, end = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  while (end < a.length - start && end < b.length - start && a[a.length - end - 1] === b[b.length - end - 1]) end++;
-  const x = a.slice(start, a.length - end), y = b.slice(start, b.length - end);
-  const prefix = escapeHtml(a.slice(0, start).join('')), suffix = escapeHtml(end ? a.slice(-end).join('') : '');
-  const mark = (text, kind) => text ? `<mark class="${kind}">${escapeHtml(text)}</mark>` : '';
-  if (!x.length || !y.length || x.length * y.length > 250_000) return {
-    before: prefix + mark(x.join(''), 'removed') + suffix,
-    after: prefix + mark(y.join(''), 'added') + suffix,
-  };
-  const dp = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
-  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--)
-    dp[i][j] = x[i] === y[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  let i = 0, j = 0, old = '', fresh = '', removed = '', added = '';
-  const flush = () => { old += mark(removed, 'removed'); fresh += mark(added, 'added'); removed = ''; added = ''; };
-  while (i < x.length || j < y.length) {
-    if (i < x.length && j < y.length && x[i] === y[j]) {
-      flush(); old += escapeHtml(x[i]); fresh += escapeHtml(y[j]); i++; j++;
-    } else if (i < x.length && (j === y.length || dp[i + 1][j] >= dp[i][j + 1])) removed += x[i++];
-    else added += y[j++];
+  const out = { before: '', after: '' };
+  for (const part of textParts(before, after)) {
+    const html = part.type === 'equal' ? escapeHtml(part.text) : `<mark class="${part.type}">${escapeHtml(part.text)}</mark>`;
+    if (part.type !== 'added') out.before += html;
+    if (part.type !== 'removed') out.after += html;
   }
-  flush();
-  return { before: prefix + old + suffix, after: prefix + fresh + suffix };
+  return out;
+}
+
+export function textSummary(diff) {
+  const pairs = diff.cells.length ? diff.cells.map(c => [c.before?.text ?? '', c.after?.text ?? '']) : [[blockText(diff.before), blockText(diff.after)]];
+  const counts = { added: 0, removed: 0, modified: 0 };
+  for (const [a, b] of pairs) for (const change of textChanges(a, b)) counts[change.type]++;
+  return Object.entries(counts).filter(([, n]) => n).map(([type, n]) => `문구 ${n}곳 ${labels[type]}`).join(' · ');
+}
+
+// Show actual edits (or search matches) first; unchanged context remains available.
+export function focusedText(before, after, side, query = '') {
+  const text = side === 'before' ? before : after;
+  const ranges = query ? findOccurrences(text, query)
+    : textChanges(before, after).map(c => [c[`${side}Start`], c[`${side}End`]]);
+  if (!ranges.length) return highlight(before, after)[side] || '(빈 셀)';
+  const windows = [];
+  for (const [a, b] of ranges) {
+    const start = Math.max(0, a - 48), end = Math.min(text.length, b + 48), last = windows.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end); else windows.push([start, end]);
+  }
+  const parts = textParts(before, after).filter(p => side === 'before' ? p.type !== 'added' : p.type !== 'removed');
+  return windows.map(([start, end]) => {
+    let html = start ? '<span class="context-ellipsis">…</span>' : '';
+    for (const p of parts) {
+      const at = p[`${side}Start`], from = Math.max(start, at), to = Math.min(end, at + p.text.length);
+      if (to > from) { const chunk = escapeHtml(p.text.slice(from - at, to - at)); html += p.type === 'equal' ? chunk : `<mark class="${p.type}" data-edit>${chunk}</mark>`; }
+    }
+    if (end < text.length) html += '<span class="context-ellipsis">…</span>';
+    return `<div class="text-window">${html}</div>`;
+  }).join('');
 }
 
 export function blockText(block) {
@@ -96,23 +110,33 @@ function location(index, page, document) {
   return `${index}번 블록${page ? ` · ${document?.pageMode === 'layout' ? page + '쪽' : '섹션 근사 ' + page}` : ''}`;
 }
 
-export function renderChangedCells(diff) {
-  return `<div class="changed-cells">${diff.cells.map(cell => {
+export function renderChangedCells(diff, query = '') {
+  let cells = diff.cells;
+  if (query && (diff.before?.table || diff.after?.table)) {
+    const a = diff.before?.table, b = diff.after?.table; cells = [];
+    for (let r = 0; r < Math.max(a?.rows ?? 0, b?.rows ?? 0); r++) for (let c = 0; c < Math.max(a?.cols ?? 0, b?.cols ?? 0); c++) {
+      const old = a?.cells[r]?.[c], fresh = b?.cells[r]?.[c];
+      if (`${old?.text ?? ''}\n${fresh?.text ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) cells.push({ row: r + 1, col: c + 1, before: old, after: fresh });
+    }
+  }
+  return `<div class="changed-cells">${cells.map(cell => {
     const header = diff.after?.table?.cells[0]?.[cell.col - 1]?.text || diff.before?.table?.cells[0]?.[cell.col - 1]?.text;
     return `<section class="cell-change"><p class="cell-address">${cell.row}행 ${cell.col}열${header ? ` · ${escapeHtml(header.slice(0, 70))}` : ''}</p><div class="diff-columns">${['before', 'after'].map(side => {
       const value = cell[side], other = cell[side === 'before' ? 'after' : 'before'];
-      return `<section class="${side}"><span class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</span><div class="cell-value ${side === 'before' ? 'cell-before' : 'cell-after'}">${value ? highlight(cell.before?.text ?? '', cell.after?.text ?? '')[side] || '(빈 셀)' : '해당 셀 없음'}</div>${value && other && (value.rowSpan !== other.rowSpan || value.colSpan !== other.colSpan) ? `<small>병합: ${value.rowSpan}행 × ${value.colSpan}열</small>` : ''}</section>`;
+      const before = cell.before?.text ?? '', after = cell.after?.text ?? '';
+      return `<section class="${side}"><span class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</span><div class="cell-value">${value ? focusedText(before, after, side, query) : '해당 셀 없음'}</div>${value && value.text.length > 160 ? `<details class="cell-context"><summary>셀 전체 내용 보기</summary><div class="context-text">${highlight(before, after)[side]}</div></details>` : ''}${value && other && (value.rowSpan !== other.rowSpan || value.colSpan !== other.colSpan) ? `<small>병합: ${value.rowSpan}행 × ${value.colSpan}열</small>` : ''}</section>`;
     }).join('')}</div></section>`;
   }).join('')}</div>`;
 }
 
-export function renderDiff(diff, documents, navigation = false) {
+export function renderDiff(diff, documents, navigation = false, query = '') {
   const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before')}</section>
     <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after')}</section></div>`;
-  const compact = diff.type === 'modified' && diff.cells.length > 0;
+  const compact = (diff.type === 'modified' && diff.cells.length > 0) || (query && (diff.before?.table || diff.after?.table));
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
-    ${compact ? renderChangedCells(diff) : ''}
+    ${textSummary(diff) ? `<p class="edit-summary">${escapeHtml(textSummary(diff))}</p>` : ''}
+    ${compact ? renderChangedCells(diff, query) : ''}
     ${compact || diff.type === 'unchanged' ? `<details class="full-context"><summary>${compact ? '전체 표 펼치기 · 동일한 셀 포함' : '동일한 내용 펼치기'}</summary>${columns}</details>` : columns}
   </article>`;
 }

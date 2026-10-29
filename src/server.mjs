@@ -12,6 +12,7 @@ const assets = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/launch-guard.js', ['launch-guard.js', 'text/javascript; charset=utf-8']],
   ['/report.js', ['report.js', 'text/javascript; charset=utf-8']],
+  ['/text-diff.js', ['text-diff.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
@@ -164,7 +165,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   });
   server.listen(port, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${port}`;
-    console.log(`문서 사이 — ${url}\n이 PC에서만 접속할 수 있습니다. 종료: Ctrl+C`);
+    console.log(`한컴 diff — ${url}\n이 PC에서만 접속할 수 있습니다. 종료: Ctrl+C`);
     if (process.platform === 'win32' && process.env.HWP_DIFF_OPEN_BROWSER === '1') {
       const browser = spawn('cmd.exe', ['/d', '/c', 'start', '', url], { windowsHide: true, stdio: 'ignore' });
       browser.on('error', () => console.error(`브라우저를 열지 못했습니다. ${url} 주소를 직접 열어 주세요.`));

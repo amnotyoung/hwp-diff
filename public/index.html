@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f5f0">
-  <title>문서 사이 · 신구대조</title>
+  <title>한컴 diff · 신구대조</title>
   <link rel="stylesheet" href="./style.css">
   <script src="./launch-guard.js" defer></script>
 </head>
 <body>
   <main id="launch-help" class="launch-help">
     <span class="brand-icon" aria-hidden="true">▥</span>
-    <h1>문서 사이를 실행해 주세요</h1>
+    <h1>한컴 diff를 실행해 주세요</h1>
     <p>이 HTML 파일은 실행 화면의 일부입니다. 파일을 직접 열면 문서 비교 기능을 사용할 수 없습니다.</p>
     <ol><li>프로젝트 폴더에서 <strong>start-windows.cmd</strong>를 실행하세요.</li><li>자동으로 열리는 브라우저에서 문서를 선택하세요. 실행 창은 사용 중에 열어 두세요.</li></ol>
     <p>이미 실행 중이라면 아래 버튼으로 이동하세요.</p>
@@ -19,17 +19,10 @@
     <p class="launch-note">처음 실행할 때는 Node.js와 프로그램 설치 파일이 준비되어 있어야 합니다. 포트를 변경했다면 실행 창에 표시된 주소를 사용하세요.</p>
   </main>
   <div id="app-shell" hidden>
-  <aside class="sidebar">
-    <a class="brand" href="/" aria-label="문서 사이 처음으로"><span class="brand-icon">▥</span><span>문서 사이<small>DOCUMENT COMPARE</small></span></a>
-    <div class="nav-label">작업 공간</div>
-    <a class="nav-item active" href="#workspace"><span>⇄</span> 문서 비교 <span class="nav-arrow">↗</span></a>
-    <div class="sidebar-guide"><span class="tiny-label">HOW IT WORKS</span><ol><li>구버전과 신버전 선택</li><li>바뀐 문장과 표 확인</li><li>신구대조표 저장</li></ol></div>
-    <div class="local-card"><span class="status-dot"></span><strong>이 PC 안에서만</strong><p>외부 서버 전송 없이<br>문서를 비교합니다.</p><span class="version">LOCAL EDITION · v0.1</span></div>
-  </aside>
   <div class="main-shell">
-    <header class="topbar"><span>작업 공간 <span class="crumb">/</span> <strong>문서 비교</strong></span><span class="offline-pill"><span class="status-dot"></span>오프라인 · LLM 미사용</span></header>
+    <header class="topbar"><a class="brand" href="/">한컴 diff</a><span class="offline-pill"><span class="status-dot"></span>오프라인 · LLM 미사용</span></header>
     <main id="workspace">
-      <div class="page-heading"><div><p class="eyebrow">작은 수정도, 놓치지 않도록.</p><h1>두 문서, 무엇이 달라졌나요?</h1><p class="subtitle">구버전과 신버전을 나란히 놓고 문장과 표의 변화를 확인하세요.</p></div><button id="demo" class="button secondary">샘플로 체험하기 <span>↗</span></button></div>
+      <div class="page-heading"><h1>문서 비교</h1><button id="demo" class="button secondary">샘플 비교</button></div>
       <section class="upload-panel" aria-label="비교할 문서 선택">
         <div class="panel-heading"><h2><span class="step">01</span> 비교할 문서</h2><span>HWP · HWPX / 파일당 최대 20MB</span></div>
         <div class="upload-grid">
@@ -41,10 +34,10 @@
       </section>
       <p id="status" class="status-message" role="status" aria-live="polite"></p>
       <div id="error" class="error-message" role="alert" hidden></div>
-      <section id="empty-state" class="empty-state"><div class="empty-illustration"><span>≡</span><i>⇄</i><span>≡</span></div><h2>변화가 한눈에 보이는 비교</h2><p>문장 속 숫자 하나부터 표 안의 값까지.<br>두 문서를 선택하면 바뀐 부분을 색으로 구분해 보여드립니다.</p><div class="legend"><span><i class="legend-dot added"></i>추가</span><span><i class="legend-dot removed"></i>삭제</span><span><i class="legend-dot modified"></i>수정</span></div></section>
+      <div id="empty-state"></div>
       <section id="results" hidden aria-label="비교 결과">
         <div class="file-summary"><span id="old-summary"></span><span class="summary-arrow">→</span><span id="new-summary"></span><button id="edit-files" class="button secondary" aria-expanded="false">파일 다시 선택</button></div>
-        <div class="result-header"><div><p class="eyebrow">COMPARISON RESULT</p><h2 id="result-title">비교가 완료되었습니다</h2></div><div class="action-group"><button id="export-json" class="button text-button">JSON 저장</button><button id="export-html" class="button secondary">신구대조표 저장 <span>↓</span></button></div></div>
+        <div class="result-header"><div><h2 id="result-title">비교가 완료되었습니다</h2></div><div class="action-group"><button id="export-json" class="button text-button">JSON 저장</button><button id="export-html" class="button secondary">신구대조표 저장 <span>↓</span></button></div></div>
         <div id="stats" class="stats"></div>
         <div id="warnings"></div>
         <div class="result-tools">
@@ -68,7 +61,7 @@
         </div>
         <details class="scope-note"><summary>비교 범위와 읽기 유의사항</summary><ul id="limitations"></ul></details>
       </section>
-      <footer class="page-footer"><span>문서 사이 <span class="footer-dot">·</span> Powered by Kordoc</span><span>본문·표 비교 / 서식·그림·OCR 제외</span></footer>
+
     </main>
   </div>
   </div>
