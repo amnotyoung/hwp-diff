@@ -3,9 +3,10 @@ process.env.KORDOC_OFFLINE = '1';
 process.env.ORT_DISABLE_TELEMETRY = '1';
 const { parse, diffBlocks, VERSION } = await import('kordoc');
 import { compareAnnotations } from './annotations.mjs';
+import { compareFormatting } from './formatting.mjs';
 
 export const LIMITATIONS = [
-  '본문과 표의 내용·병합 구조를 비교합니다. 글꼴·색상·여백·그림·도장과 그림 속 글자는 비교하지 않습니다.',
+  '본문과 표의 내용·병합 구조를 비교합니다. HWPX의 글자색·글꼴·자간·장평은 서식 탭에서 별도로 비교합니다. 여백·그림·도장과 그림 속 글자는 비교하지 않습니다.',
   '문단 이동은 삭제·추가로 표시될 수 있습니다. 표 셀은 같은 행·열 위치끼리 비교하므로 행 삽입 시 후속 셀도 변경으로 표시될 수 있습니다.',
   '쪽 번호는 문서에 저장된 정보를 사용합니다. 조판 정보가 없으면 쪽 대신 섹션 근사 위치를 표시합니다.',
 ];
@@ -142,6 +143,7 @@ export async function compareDocuments(oldFile, newFile) {
       ...(b.warnings ?? []).map(w => ({ ...w, document: '신버전' })),
     ],
     annotations: await compareAnnotations(oldFile, newFile, [a.fileType, b.fileType]),
+    formatting: await compareFormatting(oldFile, newFile, [a.fileType, b.fileType]),
     limitations: LIMITATIONS,
   });
 }
