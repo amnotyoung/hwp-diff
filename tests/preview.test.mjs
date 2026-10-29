@@ -97,6 +97,19 @@ test('anchor and search paths never return zero-height or off-page highlights', 
   assert.ok(result.locations[0].boxes.every(b => b.y + b.height <= 842 && b.height > 0));
 });
 
+test('paragraph segments retain their own pages within a multi-page table', () => {
+  const a = '첫 번째 변경 문단입니다.', b = '두 번째 변경 문단입니다.';
+  const box = page => ({ page, x: 20, y: 100, width: 300, height: 30 });
+  const scene = { pages: [1, 2].map(page => ({ page, width: 595, height: 842 })), regions: [
+    { id: 'table', sourceId: 'source', type: 'table', regions: [box(1), box(2)] },
+    { id: 'p1', type: 'paragraph', parentId: 'table', regions: [box(1)] },
+    { id: 'p2', type: 'paragraph', parentId: 'table', regions: [box(2)] },
+  ] };
+  const svgs = new Map([[1, `<svg><g data-kordoc-id="table"><g data-kordoc-id="p1"><text>${a}</text></g></g></svg>`], [2, `<svg><g data-kordoc-id="table"><g data-kordoc-id="p2"><text>${b}</text></g></g></svg>`]]);
+  const result = locateChanges(scene, svgs, [{ id: 1, block: { table: { cells: [[{ text: a + '\n' + b }]] } }, anchor: { sourceId: 'source' }, cells: [], segments: [a, b].map((context, index) => ({ index, row: 1, col: 1, anchors: [{ context, start: 0, end: 5 }] })) }]);
+  assert.deepEqual(result[0].segments.map(s => s.boxes.map(b => b.page)), [[1], [2]]);
+});
+
 test('review regression files: five modifications, two excluded images, one late-table cell', async () => {
   const f = await reviewSamples(), result = await compareDocuments(f.oldFile, f.newFile);
   assert.equal(result.stats.modified, 5); assert.equal(result.stats.added + result.stats.removed, 0);

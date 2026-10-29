@@ -1,4 +1,4 @@
-import { textParts, textChanges, changeAnchors, findOccurrences } from './text-diff.js';
+import { textParts, textChanges, changeAnchors, findOccurrences, paragraphPairs } from './text-diff.js';
 export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일', structure: '구조 변경' };
 export function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -18,6 +18,7 @@ export function previewTargets(result, side) {
     anchor: old ? d.oldAnchor : d.newAnchor,
     cells: d.cells.map(c => ({ row: c.row, col: c.col, anchors: changeAnchors(c.before?.text ?? '', c.after?.text ?? '', old ? 'before' : 'after') })),
     textAnchors: d.cells.length ? [] : changeAnchors(blockText(d.before), blockText(d.after), old ? 'before' : 'after'),
+    segments: comparisonSegments(d).map((s, index) => ({ index, row: s.row, col: s.col, anchors: changeAnchors(s.before, s.after, old ? 'before' : 'after') })),
   }));
   const memos = (result.annotations?.diffs ?? []).map(d => ({ id: d.id, category: 'memo', type: d.type, memo: old ? d.before : d.after }));
   const formatting = (result.formatting?.diffs ?? []).map(d => ({ id: d.id, category: 'format', type: 'modified', range: old ? d.before : d.after }));
@@ -35,10 +36,28 @@ export function highlight(before = '', after = '') {
 }
 
 export function textSummary(diff) {
+  const segments = comparisonSegments(diff);
+  if (segments.some(s => s.divided)) return `문단 구간 ${segments.length}곳 변경`;
   const pairs = diff.cells.length ? diff.cells.map(c => [c.before?.text ?? '', c.after?.text ?? '']) : [[blockText(diff.before), blockText(diff.after)]];
   const counts = { added: 0, removed: 0, modified: 0 };
   for (const [a, b] of pairs) for (const change of textChanges(a, b)) counts[change.type]++;
   return Object.entries(counts).filter(([, n]) => n).map(([type, n]) => `문구 ${n}곳 ${labels[type]}`).join(' · ');
+}
+
+export function comparisonSegments(diff) {
+  const sources = diff.cells?.length ? diff.cells.map(c => ({ before: c.before?.text ?? '', after: c.after?.text ?? '', row: c.row, col: c.col }))
+    : [{ before: blockText(diff.before), after: blockText(diff.after) }];
+  return sources.flatMap(source => {
+    const long = Math.max(source.before.length, source.after.length) >= 600;
+    const pairs = long ? paragraphPairs(source.before, source.after) : [{ ...source, label: '변경 문구', type: source.before === source.after ? 'unchanged' : 'modified' }];
+    return pairs.filter(p => p.type !== 'unchanged').map(p => ({ ...p, row: source.row, col: source.col, divided: long && pairs.length > 1,
+      label: source.row ? `${source.row}행 ${source.col}열 · ${p.label}` : p.label }));
+  }).map((s, index) => ({ ...s, index }));
+}
+
+function segmentedComparison(diff, interactive) {
+  const segments = comparisonSegments(diff);
+  return `<div class="segmented-change" data-reading-side="after">${interactive ? `<div class="segment-navigation"><button type="button" data-segment-step="-1" disabled>‹ 이전 구간</button><span data-segment-position>1 / ${segments.length}</span><button type="button" data-segment-step="1">다음 구간 ›</button></div><div class="segment-version-switch"><button type="button" data-segment-side="before" aria-pressed="false">구버전</button><button type="button" data-segment-side="after" aria-pressed="true">신버전</button></div>` : ''}${segments.map((s, i) => `<section class="change-segment" data-segment-index="${i}"${interactive && i ? ' hidden' : ''}><p class="cell-address">구간 ${i + 1} · ${escapeHtml(s.label)}</p><div class="diff-columns">${['before', 'after'].map(side => `<section class="${side}"><span class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</span><div class="cell-value">${focusedText(s.before, s.after, side)}</div>${s[side].length > 160 ? `<details class="cell-context"><summary>구간 전체 내용 보기</summary><div class="context-text">${highlight(s.before, s.after)[side]}</div></details>` : ''}</section>`).join('')}</div></section>`).join('')}</div>`;
 }
 
 // Keep the first actual edit visible, even when it occurs at the end of a long cell.
@@ -59,7 +78,7 @@ function briefEdit(before, after, side) {
   return html + (end < text.length ? '…' : '');
 }
 
-export function previewExplanation(diff, category = 'content') {
+export function previewExplanation(diff, category = 'content', segmentIndex = 0) {
   if (!diff) return '<p>현재 조건에 해당하는 변경이 없습니다.</p>';
   let title, before = '', after = '', note = '';
   if (category === 'format') {
@@ -81,6 +100,8 @@ export function previewExplanation(diff, category = 'content') {
     before = cell ? cell.before?.text ?? '' : blockText(diff.before);
     after = cell ? cell.after?.text ?? '' : blockText(diff.after);
     note = [cell ? `${cell.row}행 ${cell.col}열 · 변경 셀 ${diff.cells.length}개` : '', textSummary(diff)].filter(Boolean).join(' · ');
+    const segments = comparisonSegments(diff), segment = segments[segmentIndex];
+    if (segments.length > 1 && segment) { before = segment.before; after = segment.after; note = `구간 ${segmentIndex + 1} / ${segments.length} · ${segment.label}`; }
     if (diff.type === 'structure') {
       before = (diff.structureChanges ?? []).map(c => structureLabel(c.before)).join(' · ');
       after = (diff.structureChanges ?? []).map(c => structureLabel(c.after)).join(' · ');
@@ -200,12 +221,14 @@ export function renderDiff(diff, documents, navigation = false, query = '', focu
     <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after', focus && !diff.after?.table, query)}</section></div>`;
   // During search expose all searchable fields, including captions and footnotes.
   const compact = !query && diff.type === 'modified' && diff.cells.length > 0;
+  const segmented = !query && comparisonSegments(diff).some(s => s.divided);
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
     ${(diff.structureChanges ?? []).map(s => `<p class="structure-note">${escapeHtml(s.path)} · ${escapeHtml(structureLabel(s.before))} → ${escapeHtml(structureLabel(s.after))}. 동일한 문구의 분류 변경이며 본문 삭제·추가로 집계하지 않습니다.</p>`).join('')}
+    ${diff.counterpart ? `<p class="counterpart-note">같은 제목의 대응 후보: ${escapeHtml(diff.counterpart.label)} · 항목 ${diff.counterpart.id}${navigation ? ` <button type="button" data-compare-counterpart="${diff.id}">나란히 비교</button>` : ''}</p>` : ''}
     ${textSummary(diff) ? `<p class="edit-summary">${escapeHtml(textSummary(diff))}</p>` : ''}
-    ${compact ? renderChangedCells(diff, query) : ''}
-    ${compact || diff.type === 'unchanged' && !query ? `<details class="full-context"><summary>${compact ? '전체 표 펼치기 · 동일한 셀 포함' : '동일한 내용 펼치기'}</summary>${columns}</details>` : columns}
+    ${segmented ? segmentedComparison(diff, navigation || focus) : compact ? renderChangedCells(diff, query) : ''}
+    ${segmented || compact || diff.type === 'unchanged' && !query ? `<details class="full-context"><summary>${diff.before?.table || diff.after?.table ? '전체 표 펼치기 · 동일한 셀 포함' : '전체 내용 펼치기'}</summary>${columns}</details>` : columns}
   </article>`;
 }
 

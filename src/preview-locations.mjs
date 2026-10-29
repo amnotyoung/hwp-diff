@@ -156,14 +156,19 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
         : '문구와 미리보기 위치 정보를 하나로 연결하지 못했습니다. 중복 문구나 배치 차이로 위치가 불명확할 수 있습니다.' };
     }
     let found = [region], status = 'paragraph', message = '변경된 문단을 표시했습니다.';
+    const mappedCells = target.block.table ? cellRegions(target.block.table, region) : null;
+    const scopedParagraphs = target.block.table ? regions.filter(r => {
+      if (r.type !== 'paragraph') return false;
+      for (let p = byId.get(r.parentId); p; p = byId.get(p.parentId)) if (p.id === region.id) return true;
+      return false;
+    }) : [region];
+    base.segments = (Array.isArray(target.segments) ? target.segments : []).map(segment => {
+      const match = anchorBoxes(segment.anchors ?? [], mappedCells?.get(`${segment.row}:${segment.col}`) ?? scopedParagraphs);
+      return { index: segment.index, boxes: scene.pages.flatMap(page => clipPageBoxes(match.boxes, page)) };
+    });
     const anchors = target.block.table ? (target.cells ?? []).flatMap(c => c.anchors ?? []) : target.textAnchors ?? [];
     if (anchors.length) {
-      const cells = target.block.table ? cellRegions(target.block.table, region) : null;
-      const scoped = target.block.table ? regions.filter(r => {
-        if (r.type !== 'paragraph') return false;
-        for (let p = byId.get(r.parentId); p; p = byId.get(p.parentId)) if (p.id === region.id) return true;
-        return false;
-      }) : [region];
+      const cells = mappedCells, scoped = scopedParagraphs;
       let located = [], missing = 0;
       if (target.block.table) for (const cell of target.cells ?? []) {
         const match = anchorBoxes(cell.anchors ?? [], cells?.get(`${cell.row}:${cell.col}`) ?? scoped);

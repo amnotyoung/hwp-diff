@@ -4,6 +4,7 @@ process.env.ORT_DISABLE_TELEMETRY = '1';
 const { parse, diffBlocks, VERSION } = await import('kordoc');
 import { compareAnnotations } from './annotations.mjs';
 import { compareFormatting } from './formatting.mjs';
+import { paragraphHeading } from '../public/text-diff.js';
 
 export const LIMITATIONS = [
   '본문과 표의 내용·병합 구조를 비교합니다. HWPX의 글자색·글꼴·자간·장평은 서식 탭에서 별도로 비교합니다. 여백·그림·도장과 그림 속 글자는 비교하지 않습니다.',
@@ -136,6 +137,18 @@ export function compareBlocks(before, after, metadata = {}) {
       cells: a?.table && b?.table ? cellChanges(a.table, b.table) : [],
     };
   });
+  const candidateGroups = new Map();
+  for (const d of diffs) {
+    if (!['added', 'removed'].includes(d.type) || (d.before ?? d.after)?.table) continue;
+    const heading = paragraphHeading((d.before ?? d.after)?.text);
+    if (!heading) continue;
+    const group = candidateGroups.get(heading.key) ?? { label: heading.label, added: [], removed: [] };
+    group[d.type].push(d); candidateGroups.set(heading.key, group);
+  }
+  for (const group of candidateGroups.values()) if (group.added.length === 1 && group.removed.length === 1) {
+    const old = group.removed[0], fresh = group.added[0];
+    old.counterpart = { id: fresh.id, label: group.label }; fresh.counterpart = { id: old.id, label: group.label };
+  }
   return { stats, diffs, structureStats: { changed: diffs.filter(d => d.structureChanges.length).length }, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
 }
 

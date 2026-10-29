@@ -4,10 +4,18 @@ export function textParts(before = '', after = '') {
   let start = 0, end = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   while (end < a.length - start && end < b.length - start && a.at(-end - 1) === b.at(-end - 1)) end++;
-  const x = a.slice(start, a.length - end), y = b.slice(start, b.length - end), parts = [];
+  let x = a.slice(start, a.length - end), y = b.slice(start, b.length - end);
+  const parts = [];
+  let workLimit = 250_000;
   function push(type, text) { if (!text) return; const last = parts.at(-1); if (last?.type === type) last.text += text; else parts.push({ type, text }); }
   push('equal', a.slice(0, start).join(''));
-  if (!x.length || !y.length || x.length * y.length > 250_000) {
+  if (x.length * y.length > 250_000) {
+    // Preserve common words in long replacements without a quadratic character matrix.
+    x = x.join('').match(/\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) ?? [];
+    y = y.join('').match(/\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) ?? [];
+    workLimit = 1_000_000;
+  }
+  if (!x.length || !y.length || x.length * y.length > workLimit) {
     push('removed', x.join('')); push('added', y.join(''));
   } else {
     const dp = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
@@ -22,6 +30,39 @@ export function textParts(before = '', after = '') {
   push('equal', end ? a.slice(-end).join('') : '');
   let old = 0, fresh = 0;
   return parts.map(p => { const result = { ...p, beforeStart: old, afterStart: fresh }; if (p.type !== 'added') old += p.text.length; if (p.type !== 'removed') fresh += p.text.length; return result; });
+}
+
+export function paragraphHeading(text) {
+  const line = String(text ?? '').split('\n')[0].trim();
+  const match = line.match(/^[-•●]\s*\(([^)\n]{2,70})\)/)
+    ?? line.match(/^(?:[-•●]\s*)?([A-Za-z][A-Za-z0-9 /&()'’-]{2,70})\s*:/);
+  const label = match?.[1]?.trim();
+  return label ? { key: label.normalize('NFC').toLocaleLowerCase().replace(/\s+/g, ' '), label } : null;
+}
+
+// Unique shared headings are explicit structural anchors, not semantic guesses.
+export function paragraphPairs(before = '', after = '') {
+  const lines = text => { let offset = 0; return text.split('\n').map((line, i, all) => {
+    const value = line + (i < all.length - 1 ? '\n' : ''), heading = paragraphHeading(line);
+    const row = { text: value, start: offset, heading, key: heading?.key ?? (line.length <= 80 ? `=${line.trim()}` : null) };
+    offset += value.length; return row;
+  }); };
+  const a = lines(before), b = lines(after);
+  if (a.length < 2 && b.length < 2) return [{ before, after, label: '문단', type: before === after ? 'unchanged' : !before ? 'added' : !after ? 'removed' : 'modified' }];
+  const count = rows => { const m = new Map(); for (const row of rows) if (row.key) m.set(row.key, (m.get(row.key) ?? 0) + 1); return m; };
+  const ac = count(a), bc = count(b), anchors = []; let last = -1;
+  for (const row of a) {
+    if (!row.key || ac.get(row.key) !== 1 || bc.get(row.key) !== 1) continue;
+    const j = b.findIndex(r => r.key === row.key);
+    if (j <= last) continue;
+    anchors.push({ a: row.start, b: b[j].start, label: row.heading?.label ?? row.text.trim() }); last = j;
+  }
+  if (!anchors.length || anchors[0].a || anchors[0].b) anchors.unshift({ a: 0, b: 0, label: '문단' });
+  const pairs = anchors.map((anchor, i) => {
+    const old = before.slice(anchor.a, anchors[i + 1]?.a ?? before.length), fresh = after.slice(anchor.b, anchors[i + 1]?.b ?? after.length);
+    return { before: old, after: fresh, label: anchor.label, type: old === fresh ? 'unchanged' : !old.trim() ? 'added' : !fresh.trim() ? 'removed' : 'modified' };
+  });
+  return pairs.filter(p => p.before || p.after);
 }
 
 export function textChanges(before = '', after = '') {
