@@ -79,7 +79,7 @@ async function previewRequest(req) {
   if (form.get('demo') === '1') {
     const side = form.get('side');
     if (!['old', 'new'].includes(side)) throw new HttpError(400, '미리볼 문서를 선택해 주세요.');
-    return { preview: true, demo: true, side, page, options };
+    return { preview: true, demo: true, reverse: form.get('reverse') === '1', side, page, options };
   }
   const file = form.get('file');
   if (!file || typeof file === 'string' || !/\.(hwp|hwpx)$/i.test(file.name)) throw new HttpError(400, 'HWP·HWPX 문서를 선택해 주세요.');
@@ -145,7 +145,12 @@ export function createServer() {
         const onClose = () => { if (!res.writableEnded) abort.abort(); };
         res.on('close', onClose);
         try {
-          const data = path === '/api/demo' ? (await body(req), { demo: true })
+          let demoOptions = {};
+          if (path === '/api/demo') {
+            const raw = await body(req);
+            if (raw.length) try { demoOptions = JSON.parse(raw.toString()); } catch { throw new HttpError(400, '샘플 요청을 읽을 수 없습니다.'); }
+          }
+          const data = path === '/api/demo' ? { demo: true, reverse: demoOptions?.reverse === true }
             : path === '/api/preview' ? await previewRequest(req) : await uploadFiles(req);
           const result = await runWorker(data, abort.signal);
           send(200, result);

@@ -40,6 +40,14 @@ test('sample endpoint uses real HWPX generation and comparison', async () => {
   const res = await post('/api/demo'); assert.equal(res.status, 200);
   assert.equal((await res.json()).stats.added, 3);
 });
+test('swapping files and demo order reverses additions/deletions and document names', async () => {
+  const forward = await (await post('/api/compare', form())).json();
+  const reversed = await (await post('/api/compare', form(files.newFile, files.oldFile))).json();
+  assert.equal(forward.stats.added, reversed.stats.removed); assert.equal(forward.stats.removed, reversed.stats.added);
+  assert.equal(reversed.documents.before.name, files.newFile.name);
+  const demo = await (await post('/api/demo', JSON.stringify({ reverse: true }))).json();
+  assert.equal(demo.documents.before.name, files.newFile.name); assert.equal(demo.stats.removed, forward.stats.added);
+});
 test('preview endpoint renders selected uploaded document and demo; rejects invalid page', async () => {
   const f = new FormData(); f.append('file', new Blob([files.oldFile.bytes]), files.oldFile.name); f.append('page', '1');
   const response = await post('/api/preview', f);

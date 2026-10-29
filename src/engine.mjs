@@ -63,11 +63,31 @@ function cellChanges(before, after) {
     for (let c = 0; c < Math.max(before.cols, after.cols); c++) {
       const a = before.cells[r]?.[c] ?? null;
       const b = after.cells[r]?.[c] ?? null;
-      if (JSON.stringify(a) !== JSON.stringify(b)) changes.push({
+      if (JSON.stringify(semanticContent(a)) !== JSON.stringify(semanticContent(b))) changes.push({
         row: r + 1, col: c + 1, type: !a ? 'added' : !b ? 'removed' : 'modified',
         before: a, after: b,
       });
     }
+  }
+  return changes;
+}
+
+const textKinds = new Set(['paragraph', 'heading', 'list']);
+// A parser's heading heuristic must not turn identical text into deletion/addition.
+function semanticContent(value) {
+  if (Array.isArray(value)) return value.map(semanticContent);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'type' && textKinds.has(child) ? 'paragraph' : semanticContent(child)]));
+}
+function structureChanges(before, after, path = '본문') {
+  if (!before || !after) return [];
+  const changes = [];
+  const shape = b => ({ type: b.type, ...(b.level != null ? { level: b.level } : {}), ...(b.listType ? { listType: b.listType } : {}) });
+  if (textKinds.has(before.type) && textKinds.has(after.type) && before.text === after.text && JSON.stringify(shape(before)) !== JSON.stringify(shape(after))) changes.push({ path, text: before.text ?? '', before: shape(before), after: shape(after) });
+  for (const key of ['children', 'footnoteBlocks']) for (let i = 0; i < Math.min(before[key]?.length ?? 0, after[key]?.length ?? 0); i++) changes.push(...structureChanges(before[key][i], after[key][i], `${path} / 문단 ${i + 1}`));
+  if (before.table && after.table) for (let r = 0; r < Math.min(before.table.rows, after.table.rows); r++) for (let c = 0; c < Math.min(before.table.cols, after.table.cols); c++) {
+    const a = before.table.cells[r]?.[c]?.blocks ?? [], b = after.table.cells[r]?.[c]?.blocks ?? [];
+    for (let i = 0; i < Math.min(a.length, b.length); i++) changes.push(...structureChanges(a[i], b[i], `${path} / 표 ${r + 1}행 ${c + 1}열`));
   }
   return changes;
 }
@@ -79,7 +99,7 @@ export function compareBlocks(before, after, metadata = {}) {
   // Unsupported objects must not participate in alignment or change counts.
   const originals = new Map();
   const comparable = blocks => blocks.filter(b => b.type !== 'image').map(raw => {
-    const projected = content(raw);
+    const projected = semanticContent(content(raw));
     // Leave table.text absent: Kordoc otherwise matches every table as empty text.
     const alignment = { ...projected, text: raw.type === 'table' ? undefined : projected.text };
     originals.set(alignment, raw); return alignment;
@@ -100,21 +120,23 @@ export function compareBlocks(before, after, metadata = {}) {
   };
   const oldAnchors = anchors(before), newAnchors = anchors(after);
   const diffs = aligned.diffs.map((pair, index) => {
-    const a = content(pair.before), b = content(pair.after);
+    const rawA = originals.get(pair.before), rawB = originals.get(pair.after);
+    const a = content(rawA), b = content(rawB), structure = structureChanges(rawA, rawB);
     // Kordoc 4.24.18 treats >= .99 similarity as unchanged. Use exact equality
     // AFTER alignment so a one-digit change in a long paragraph is never hidden.
-    const type = !a ? 'added' : !b ? 'removed'
-      : JSON.stringify(a) === JSON.stringify(b) ? 'unchanged' : 'modified';
-    stats[type]++;
+    const contentType = !a ? 'added' : !b ? 'removed'
+      : JSON.stringify(semanticContent(a)) === JSON.stringify(semanticContent(b)) ? 'unchanged' : 'modified';
+    const type = contentType === 'unchanged' && structure.length ? 'structure' : contentType;
+    stats[contentType]++;
     return {
-      id: index + 1, type, before: a, after: b,
+      id: index + 1, type, contentType, before: a, after: b, structureChanges: structure,
       oldIndex: oldIndexes.get(originals.get(pair.before)) ?? null, newIndex: newIndexes.get(originals.get(pair.after)) ?? null,
       oldPage: originals.get(pair.before)?.pageNumber ?? null, newPage: originals.get(pair.after)?.pageNumber ?? null,
       oldAnchor: oldAnchors.get(originals.get(pair.before)) ?? null, newAnchor: newAnchors.get(originals.get(pair.after)) ?? null,
       cells: a?.table && b?.table ? cellChanges(a.table, b.table) : [],
     };
   });
-  return { stats, diffs, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
+  return { stats, diffs, structureStats: { changed: diffs.filter(d => d.structureChanges.length).length }, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
 }
 
 async function readDocument(bytes, name) {

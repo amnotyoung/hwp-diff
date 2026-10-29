@@ -1,5 +1,5 @@
 import { textParts, textChanges, changeAnchors, findOccurrences } from './text-diff.js';
-export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일' };
+export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일', structure: '구조 변경' };
 export function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -14,7 +14,7 @@ export function fileLabel(name, limit = 42) {
 export function previewTargets(result, side) {
   const old = side === 'old';
   const body = result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
-    id: d.id, type: d.type, block: old ? d.before : d.after,
+    id: d.id, type: d.type === 'structure' ? 'modified' : d.type, category: d.type === 'structure' ? 'structure' : 'content', block: old ? d.before : d.after,
     anchor: old ? d.oldAnchor : d.newAnchor,
     cells: d.cells.map(c => ({ row: c.row, col: c.col, anchors: changeAnchors(c.before?.text ?? '', c.after?.text ?? '', old ? 'before' : 'after') })),
     textAnchors: d.cells.length ? [] : changeAnchors(blockText(d.before), blockText(d.after), old ? 'before' : 'after'),
@@ -112,7 +112,11 @@ export function renderBlock(block, other, side, focus = false, query = '') {
 
 function location(index, page, document) {
   if (!index) return '—';
-  return `${index}번 블록${page ? ` · ${document?.pageMode === 'layout' ? page + '쪽' : '섹션 근사 ' + page}` : ''}`;
+  return page ? document?.pageMode === 'layout' ? '원문 저장 쪽 ' + page : '구역 근사 ' + page : '원문 쪽 정보 없음';
+}
+
+function structureLabel(shape) {
+  return shape.type === 'heading' ? `제목${shape.level ? ` (${shape.level}단계)` : ''}` : shape.type === 'list' ? '목록' : '문단';
 }
 
 export function renderChangedCells(diff, query = '') {
@@ -140,9 +144,10 @@ export function renderDiff(diff, documents, navigation = false, query = '') {
   const compact = (diff.type === 'modified' && diff.cells.length > 0) || (query && (diff.before?.table || diff.after?.table));
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
+    ${(diff.structureChanges ?? []).map(s => `<p class="structure-note">${escapeHtml(s.path)} · ${escapeHtml(structureLabel(s.before))} → ${escapeHtml(structureLabel(s.after))}. 동일한 문구의 분류 변경이며 본문 삭제·추가로 집계하지 않습니다.</p>`).join('')}
     ${textSummary(diff) ? `<p class="edit-summary">${escapeHtml(textSummary(diff))}</p>` : ''}
     ${compact ? renderChangedCells(diff, query) : ''}
-    ${compact || diff.type === 'unchanged' ? `<details class="full-context"><summary>${compact ? '전체 표 펼치기 · 동일한 셀 포함' : '동일한 내용 펼치기'}</summary>${columns}</details>` : columns}
+    ${compact || diff.type === 'unchanged' && !query ? `<details class="full-context"><summary>${compact ? '전체 표 펼치기 · 동일한 셀 포함' : '동일한 내용 펼치기'}</summary>${columns}</details>` : columns}
   </article>`;
 }
 
@@ -197,10 +202,11 @@ export function exportHtml(result) {
   .memo-card,.format-card{border:1px solid #DCE2E8;margin:18px 0;break-inside:avoid}.memo-card section,.format-card section{padding:14px}.memo-text,.format-excerpt{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope,.format-scope{font-size:12px;color:#67717C}.format-values{width:100%;border-collapse:collapse}.format-values th,.format-values td{border:1px solid #DCE2E8;padding:8px;text-align:left}.format-text{background:#DAEBFA}.color-swatch{width:12px;height:12px;margin-right:6px}
   </style></head><body><h1>문서 신구대조표</h1><p>구버전: ${escapeHtml(result.documents.before.name)}<br>신버전: ${escapeHtml(result.documents.after.name)}</p>
   <p>추가 ${result.stats.added} · 삭제 ${result.stats.removed} · 수정 ${result.stats.modified} · 동일 ${result.stats.unchanged} (블록 기준)</p>
+  ${result.structureStats?.changed ? `<p>제목·문단 구조 변경 ${result.structureStats.changed}개 · 본문 추가/삭제와 별도 집계</p>` : ''}
   <p>${escapeHtml(result.engine)} · ${escapeHtml(result.createdAt)} · 실제 내용의 일치 여부로 판정</p>
   ${warningsHtml(result)}<ul>${result.limitations.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
   ${result.annotations ? annotationsHtml(result.annotations) : ''}
   ${result.formatting ? formattingHtml(result.formatting) : ''}
   ${changes.length ? changes.map(d => renderDiff(d, result.documents)).join('') : '<p>비교 대상 본문·표에서 변경을 찾지 못했습니다. 문서 전체가 동일하다는 판정은 아닙니다.</p>'}
-  <p>동일한 블록 ${result.stats.unchanged}개는 이 대조표에서 생략했습니다.</p></body></html>`;
+  <p>내용과 분류가 동일한 항목 ${result.diffs.filter(d => d.type === 'unchanged').length}개는 이 대조표에서 생략했습니다.</p></body></html>`;
 }

@@ -118,7 +118,7 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
     return { page: b.page, x, y, width: Math.min(page.width, b.x + b.width) - x, height: Math.min(page.height, b.y + b.height) - y };
   }).filter(b => b.width > 0 && b.height > 0);
   const locations = targets.map(target => {
-    const base = { id: target.id, type: target.type };
+    const base = { id: target.id, type: target.type, category: target.category ?? 'content' };
     if (target.category === 'format') {
       const range = target.range, context = range?.paragraphText;
       if (!context) return { ...base, category: 'format', boxes: [], status: 'unresolved', message: '서식 변경 위치를 확인하지 못했습니다.' };
@@ -177,7 +177,7 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
       }
     }
     const located = boxes(found);
-    return { ...base, boxes: located, status: located.length ? status : 'unresolved', navigationLabel: status === 'table' ? '표 시작 쪽 보기' : '변경 셀 보기', message: located.length ? message : '표시 가능한 위치를 찾지 못했습니다. 변경 문구를 확인해 주세요.' };
+    return { ...base, boxes: located, status: located.length ? status : 'unresolved', navigationLabel: status === 'table' ? '표 시작 쪽 보기' : status === 'cells' ? '변경 셀 보기' : '선택 위치 보기', message: located.length ? message : '표시 가능한 위치를 찾지 못했습니다. 변경 문구를 확인해 주세요.' };
   });
   if (search) {
     const needle = normalize(search).toLocaleLowerCase();

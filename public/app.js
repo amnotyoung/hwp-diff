@@ -10,6 +10,7 @@ let previewLocations = { old: [], new: [] }, previewData = { old: null, new: nul
 let selectedMemoId = null, memoScroll = 0, memoEntryId = null;
 let selectedFormatId = null, formatScroll = 0, formatEntryId = null;
 let previewOpened = false;
+let previewSelectionId = null, demoReversed = false;
 const previewScrolls = new Map();
 let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
 const queryText = () => $('#search').value.trim();
@@ -36,6 +37,7 @@ function clearResults() {
   selectedMemoId = null; memoScroll = 0; memoEntryId = null;
   selectedFormatId = null; formatScroll = 0; formatEntryId = null;
   previewOpened = false; previewScrolls.clear();
+  previewSelectionId = null;
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
@@ -60,7 +62,16 @@ for (const side of ['old', 'new']) {
     selectFile(side, event.dataTransfer.files[0]);
   });
 }
-$('#swap').addEventListener('click', () => { [files.old, files.new] = [files.new, files.old]; clearResults(); updateFiles(); });
+function swapFiles(recompare = false) {
+  if (controller) return;
+  if (recompare && isDemo) return compare(true, !demoReversed);
+  [files.old, files.new] = [files.new, files.old];
+  $('#old-file').value = ''; $('#new-file').value = '';
+  clearResults(); updateFiles();
+  if (recompare && files.old && files.new) compare();
+}
+$('#swap').addEventListener('click', () => swapFiles());
+$('#swap-result').addEventListener('click', () => swapFiles(true));
 $('#reset').addEventListener('click', () => {
   files = { old: null, new: null };
   $('#old-file').value = ''; $('#new-file').value = ''; $('#search').value = '';
@@ -68,7 +79,7 @@ $('#reset').addEventListener('click', () => {
 });
 
 function setBusy(busy, preview = false) {
-  for (const id of ['demo', 'swap', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change', 'preview-change']) $(`#${id}`).disabled = busy;
+  for (const id of ['demo', 'swap', 'swap-result', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change']) $(`#${id}`).disabled = busy;
   document.querySelectorAll('[data-preview-diff], [data-preview-memo], [data-preview-format], #preview-memo, #preview-format').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-filter], #search').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
@@ -78,7 +89,7 @@ function setBusy(busy, preview = false) {
   if (!busy) { updatePageButtons(); if (result) updateNavigator(); }
   updateSearchControls();
 }
-async function compare(demo = false) {
+async function compare(demo = false, reverse = false) {
   if (controller) return;
   controller = new AbortController();
   clearResults(); showError(); setBusy(true);
@@ -86,10 +97,10 @@ async function compare(demo = false) {
   try {
     const form = new FormData();
     if (!demo) { form.append('oldFile', files.old); form.append('newFile', files.new); }
-    const response = await fetch(demo ? '/api/demo' : '/api/compare', { method: 'POST', headers: { 'X-Hwp-Diff': '1' }, body: demo ? undefined : form, signal: controller.signal });
+    const response = await fetch(demo ? '/api/demo' : '/api/compare', { method: 'POST', headers: { 'X-Hwp-Diff': '1' }, body: demo ? JSON.stringify({ reverse }) : form, signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '비교하지 못했습니다.');
-    result = data; isDemo = demo; filter = 'changes'; shown = 50; $('#search').value = '';
+    result = data; isDemo = demo; demoReversed = reverse; filter = 'changes'; shown = 50; $('#search').value = '';
     $('#status').textContent = demo ? '샘플 비교 결과입니다. 실제 문서를 선택해 새 비교를 시작할 수 있습니다.' : '비교가 완료되었습니다. 결과는 이 화면을 닫으면 삭제됩니다. 필요한 경우 신구대조표를 저장하세요.';
     showResults();
   } catch (error) {
@@ -112,6 +123,7 @@ function showResults() {
   const changed = result.diffs.filter(d => d.type !== 'unchanged');
   if (formatCount) $('#result-title').textContent = `내용 변경 ${total}개 · 서식 변경 ${formatCount}곳${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (changed.length === 1 && !memoChanges && !formatCount) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
+  if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 ${formatCount}곳` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : '서식 확인 필요';
@@ -122,16 +134,16 @@ function showResults() {
   $('#preview-memo').innerHTML = '<option value="">메모 선택</option>' + memos.map((m, i) => `<option value="${escapeHtml(m.id)}">메모 ${i + 1} · ${labels[m.type]} · ${escapeHtml((m.after ?? m.before).text.slice(0, 45))}</option>`).join('');
   $('#preview-memo-control').hidden = !memos.length;
   $('#return-memos').hidden = !memos.length;
-  $('#preview-body-control').hidden = !total; $('#preview-jump').hidden = !total;
-  $('#stats').innerHTML = Object.entries(labels).map(([type, label]) => `<div class="stat ${type}"><span>${label}</span><strong>${result.stats[type]}<small>개 블록</small></strong></div>`).join('');
+  $('#preview-jump').hidden = !result.diffs.some(d => d.type !== 'unchanged');
+  $('#stats').innerHTML = Object.entries(result.stats).map(([type, count]) => `<div class="stat ${type}"><span>${labels[type]}</span><strong>${count}<small>개 항목</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
-  if (result.formatting?.available === false) $('#warnings').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
-  if (result.formatting?.incompleteRanges) $('#warnings').insertAdjacentHTML('beforeend', '<p class="parse-warning">일부 문구의 서식 대응을 확인하지 못했습니다. 서식 탭에서 확인해 주세요.</p>');
+  $('#critical-notices').replaceChildren();
+  if (result.formatting?.available === false) $('#critical-notices').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
+  if (result.formatting?.incompleteRanges) $('#critical-notices').insertAdjacentHTML('beforeend', '<p class="parse-warning">일부 문구의 서식 대응을 확인하지 못했습니다. 서식 탭에서 확인해 주세요.</p>');
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
   for (const [side, key] of [['old', 'before'], ['new', 'after']]) {
     for (const suffix of ['column', 'preview-name', 'summary']) $(`#${side}-${suffix}`).innerHTML = `<span>${side === 'old' ? '구버전' : '신버전'} · </span>${fileLabel(result.documents[key].name)}`;
   }
-  $('#preview-change').innerHTML = result.diffs.filter(d => d.type !== 'unchanged').map(d => `<option value="${d.id}">${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 45))}</option>`).join('') || '<option value="">변경 없음</option>';
   renderList();
   if (!total && memoChanges) setView('memos');
   else if (!total && formatCount) setView('formats');
@@ -173,7 +185,8 @@ function updateNavigator() {
 }
 function selectChange(id) {
   if (controller) return;
-  selectedId = Number(id); updateNavigator();
+  selectedId = Number(id); selectedMemoId = null; selectedFormatId = null;
+  $('#preview-memo').value = ''; $('#preview-format').value = ''; updateNavigator();
   if (!$('#preview-panel').hidden) return jumpToDiff(selectedId);
   const index = filteredDiffs().findIndex(d => d.id === selectedId);
   if (index >= shown) { shown = index + 1; renderList(); }
@@ -260,7 +273,7 @@ async function loadPreview(side, page, jump = false) {
       form.append('targets', JSON.stringify(previewTargets(result, side)));
       if (activeFocusId()) form.append('focusId', String(activeFocusId()));
       if (jump) form.append('jump', '1');
-      if (isDemo) { form.append('demo', '1'); form.append('side', side); }
+      if (isDemo) { form.append('demo', '1'); form.append('side', side); if (demoReversed) form.append('reverse', '1'); }
       else form.append('file', files[side]);
       const response = await fetch('/api/preview', { method: 'POST', headers: { 'X-Hwp-Diff': '1' }, body: form, signal: controller.signal });
       data = await response.json();
@@ -271,7 +284,8 @@ async function loadPreview(side, page, jump = false) {
     previewLocations[side] = data.locations ?? []; previewData[side] = data;
     previewPages[side] = data.page;
     img.src = data.image; $(`#${side}-canvas`).hidden = false; message.hidden = true;
-    $(`#${side}-page`).innerHTML = Array.from({ length: data.totalPages }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+    $(`#${side}-page`).max = String(data.totalPages);
+    $(`#${side}-page`).setCustomValidity('');
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
     const focused = data.locations?.find(l => l.id === activeFocusId());
@@ -281,6 +295,7 @@ async function loadPreview(side, page, jump = false) {
     await img.decode().catch(() => {});
     if (jump) scrollToRegion(side);
     else restorePreviewScroll(side);
+    updateVisibleSelection();
   } catch (error) {
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
   }
@@ -298,6 +313,7 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
     }
   } finally { controller = null; setBusy(false); }
   previewOpened = true;
+  previewSelectionId = activeFocusId();
   previewHits = ['new', 'old'].flatMap(side => (previewData[side]?.searchQuery === queryText() ? previewData[side]?.searchMatches ?? [] : []).map(hit => ({ ...hit, side })));
   updateSearchControls();
 }
@@ -314,7 +330,6 @@ function jumpToDiff(id) {
     if (result.documents[docKey].pageMode === 'layout' && diff[pageKey]) pages[side] = diff[pageKey];
     else pages[side] = 1;
   }
-  $('#preview-change').value = String(id);
   showPreview(pages, '변경 항목을 원문에서 찾아 이동합니다. 위치를 찾지 못한 경우 각 문서 아래에 안내합니다.', true);
 }
 function jumpToMemo(id) {
@@ -336,6 +351,11 @@ $('#view-memos').addEventListener('click', () => setView('memos'));
 $('#view-formats').addEventListener('click', () => setView('formats'));
 $('#view-preview').addEventListener('click', async () => {
   if (previewOpened) {
+    if (activeFocusId() !== previewSelectionId) {
+      if (selectedFormatId) return jumpToFormat(selectedFormatId);
+      if (selectedMemoId) return jumpToMemo(selectedMemoId);
+      if (selectedId) return jumpToDiff(selectedId);
+    }
     setView(true); showSelectedDetail();
     if (['old', 'new'].some(side => previewData[side]?.searchQuery !== queryText())) await showPreview();
     else for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); }
@@ -356,17 +376,27 @@ $('#memo-panel').addEventListener('click', event => { const button = event.targe
 $('#format-panel').addEventListener('click', event => { const button = event.target.closest('[data-preview-format]'); if (button) jumpToFormat(button.dataset.previewFormat); });
 $('#preview-format').addEventListener('change', event => jumpToFormat(event.target.value));
 $('#return-formats').addEventListener('click', () => setView('formats'));
-$('#preview-jump').addEventListener('click', () => jumpToDiff($('#preview-change').value));
-$('#preview-change').addEventListener('change', event => jumpToDiff(event.target.value));
+$('#preview-jump').addEventListener('click', () => selectedFormatId ? jumpToFormat(selectedFormatId) : selectedMemoId ? jumpToMemo(selectedMemoId) : jumpToDiff(selectedId));
 $('#diff-list').addEventListener('click', event => { const button = event.target.closest('[data-preview-diff]'); if (button) jumpToDiff(button.dataset.previewDiff); });
 $('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; });
 for (const side of ['old', 'new']) {
-  $(`#${side}-page`).addEventListener('change', event => showPreview({ [side]: Number(event.target.value) }));
+  const input = $(`#${side}-page`);
+  const go = () => {
+    if (controller) return;
+    const page = Number(input.value), max = previewData[side]?.totalPages ?? 1;
+    input.setCustomValidity(Number.isInteger(page) && page >= 1 && page <= max ? '' : `1~${max} 사이의 쪽 번호를 입력하세요.`);
+    if (!input.reportValidity() || page === previewPages[side]) return;
+    showPreview({ [side]: page });
+  };
+  input.addEventListener('input', () => input.setCustomValidity(''));
+  input.addEventListener('change', go);
+  input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); go(); } });
   $(`#${side}-prev`).addEventListener('click', () => showPreview({ [side]: previewPages[side] - 1 }));
   $(`#${side}-next`).addEventListener('click', () => showPreview({ [side]: previewPages[side] + 1 }));
 }
 
 function showSelectedDetail() {
+  updateVisibleSelection();
   if (selectedFormatId) {
     const formats = result?.formatting?.diffs ?? [], index = formats.findIndex(d => d.id === selectedFormatId);
     $('#selection-title').textContent = `서식 변경 구간 ${index + 1}`;
@@ -385,6 +415,20 @@ function showSelectedDetail() {
     ? renderDiff(diff, result.documents).replace(`id="change-${diff.id}"`, `id="selected-${diff.id}"`)
     : '<p>변경 항목을 선택하면 구버전·신버전 문구가 여기에 표시됩니다.</p>';
 }
+function updateVisibleSelection() {
+  if (!result) return;
+  const id = activeFocusId();
+  if (!id) { $('#preview-selection-status').textContent = '선택 항목 없음'; return; }
+  const label = selectedMemoId ? `메모 ${String(id).slice(5)}` : selectedFormatId ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
+  const statuses = ['old', 'new'].map(side => {
+    const location = previewData[side]?.locations.find(l => l.id === id), pages = [...new Set(location?.boxes.map(b => b.page) ?? [])];
+    const prefix = side === 'old' ? '구버전' : '신버전';
+    if (pages.includes(previewPages[side])) return `${prefix}: 현재 렌더링 ${previewPages[side]}쪽에 표시`;
+    if (pages.length) return `${prefix}: 렌더링 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
+    return `${prefix}: ${location?.status === 'absent' ? '해당 항목 없음' : '위치 미확인'}`;
+  });
+  $('#preview-selection-status').textContent = `${label} — ${statuses.join(' / ')}`;
+}
 function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
   svg.replaceChildren(); if (!data) return;
@@ -395,7 +439,7 @@ function drawOverlays(side) {
     for (const prop of ['x', 'y', 'width', 'height']) rect.setAttribute(prop, String(box[prop]));
     const isMemo = location.category === 'memo';
     const isFormat = location.category === 'format';
-    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${isFormat ? ' format-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
+    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${isFormat ? ' format-region' : ''}${location.category === 'structure' ? ' structure-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
     rect.setAttribute('data-change-id', String(location.id)); rect.setAttribute('tabindex', '0'); rect.setAttribute('role', 'button');
     rect.setAttribute('aria-label', isFormat ? `서식 구간 ${String(location.id).slice(7)} 선택` : isMemo ? `메모 ${String(location.id).slice(5)} 선택` : `${labels[location.type]} 항목 ${location.id} 선택`);
     const select = () => isFormat ? jumpToFormat(location.id) : isMemo ? jumpToMemo(location.id) : jumpToDiff(location.id);
@@ -430,7 +474,10 @@ function restorePreviewScroll(side) {
 function updateSearchControls() {
   const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
   const query = queryText();
-  $('#search-count').textContent = query ? hits.length ? `${searchIndex >= 0 ? searchIndex + 1 : '–'}/${hits.length}${preview ? ' 문단' : ' 일치'}` : '0건' : '';
+  const total = filteredDiffs().length, loaded = Math.min(shown, total);
+  $('#search-count').textContent = query ? preview ? hits.length ? `${searchIndex >= 0 ? searchIndex + 1 : '–'}/${hits.length} 문단` : '0건'
+    : `표시 ${loaded}/${total}개 항목 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}${hits.length >= 1000 ? '(최대)' : ''}곳` : '';
+  $('#search-count').title = preview ? '원본 전체 문서 기준' : '현재 화면에 표시한 항목의 일치 수입니다. 다음 50개 보기를 누르면 검색 범위가 늘어납니다.';
   $('#previous-match').disabled = !query || !hits.length || !!controller;
   $('#next-match').disabled = !query || !hits.length || !!controller;
 }
@@ -466,7 +513,7 @@ async function focusMatch(index) {
     const scale = canvas.getBoundingClientRect().width / data.width;
     viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
     if (compactScreen.matches && $('#preview-zoom').value === 'fit') $(`#${hit.side}-overlays .search-region`)?.scrollIntoView({ block: 'center' });
-    $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
+    $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} 렌더링 ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
   }
   updateSearchControls();
 }

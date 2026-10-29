@@ -165,3 +165,18 @@ test('long tables default to changed cells and keep complete context collapsed',
   assert.match(html, /<details class="full-context">/); assert.ok(!html.includes('<details open'));
   assert.ok(html.includes('행 50'));
 });
+
+test('identical text changing paragraph/heading classification is one structural change, not deletion/addition', () => {
+  const r = compareBlocks([{ type: 'paragraph', text: 'IV. 결론' }], [{ type: 'heading', level: 1, text: 'IV. 결론' }]);
+  assert.deepEqual(r.stats, { added: 0, removed: 0, modified: 0, unchanged: 1 });
+  assert.equal(r.diffs.length, 1); assert.equal(r.diffs[0].type, 'structure'); assert.equal(r.structureStats.changed, 1);
+  assert.equal(r.diffs[0].after.type, 'heading');
+});
+
+test('heading level changes and nested cell classifications are not content edits', () => {
+  const a = { type: 'heading', level: 1, text: '동일 제목' }, b = { ...a, level: 2 };
+  assert.equal(compareBlocks([a], [b]).diffs[0].type, 'structure');
+  const old = table([['동일 제목']]), fresh = structuredClone(old);
+  old.table.cells[0][0].blocks = [a]; fresh.table.cells[0][0].blocks = [b];
+  const r = compareBlocks([old], [fresh]); assert.equal(r.stats.modified, 0); assert.equal(r.diffs[0].cells.length, 0); assert.equal(r.structureStats.changed, 1);
+});

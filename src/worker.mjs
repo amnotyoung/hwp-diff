@@ -5,6 +5,7 @@ import { previewDocument } from './preview.mjs';
 
 try {
   const files = workerData.demo ? await sampleFiles() : workerData;
+  if (workerData.demo && workerData.reverse) [files.oldFile, files.newFile] = [files.newFile, files.oldFile];
   const result = workerData.preview
     ? await previewDocument(workerData.demo ? files[workerData.side === 'old' ? 'oldFile' : 'newFile'] : workerData.file, workerData.page, workerData.options)
     : await compareDocuments(files.oldFile, files.newFile);
