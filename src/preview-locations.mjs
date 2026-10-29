@@ -7,8 +7,10 @@ const textOf = block => [block.text, ...(block.table?.cells ?? []).flat().filter
 // Read only the renderer's own group IDs and text. Never execute document markup.
 export function locateChanges(scene, pageSvgs, targets, search = '') {
   const byId = new Map(scene.regions.map(r => [r.id, { ...r, text: '', fragments: [] }]));
+  const pageTexts = [];
   for (const [page, svg] of pageSvgs) {
     const root = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    pageTexts.push(Array.from(root.getElementsByTagName('text')).map(el => el.textContent).join(''));
     for (const group of Array.from(root.getElementsByTagName('g'))) {
       const region = byId.get(group.getAttribute('data-kordoc-id'));
       if (!region) continue;
@@ -17,6 +19,7 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
     }
   }
   const regions = [...byId.values()];
+  const renderedText = normalize(pageTexts.join(''));
   function parentTable(region) {
     let parent = byId.get(region.parentId);
     while (parent) {
@@ -144,7 +147,13 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
     }
     if (!target.block) return { ...base, boxes: [], status: 'absent', message: '이 버전에는 해당 내용이 없습니다.' };
     const region = findRegion(target);
-    if (!region) return { ...base, boxes: [], status: 'unresolved', message: '정확한 위치를 찾지 못했습니다. 옆의 변경 문구와 원본을 함께 확인해 주세요.' };
+    if (!region) {
+      const needle = normalize(textOf(target.block));
+      const textUnmatched = !target.block.table && needle.length >= 24 && !renderedText.includes(needle);
+      return { ...base, boxes: [], status: 'unresolved', reason: textUnmatched ? 'text-unmatched' : 'location-unmatched', message: textUnmatched
+        ? '비교에서 읽은 문구가 미리보기 텍스트에 없어 위치를 연결하지 못했습니다. 글상자 등 일부 내용이 렌더링되지 않았을 수 있습니다.'
+        : '문구와 미리보기 위치 정보를 하나로 연결하지 못했습니다. 중복 문구나 배치 차이로 위치가 불명확할 수 있습니다.' };
+    }
     let found = [region], status = 'paragraph', message = '변경된 문단을 표시했습니다.';
     const anchors = target.block.table ? (target.cells ?? []).flatMap(c => c.anchors ?? []) : target.textAnchors ?? [];
     if (anchors.length) {

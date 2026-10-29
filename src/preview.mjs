@@ -22,6 +22,11 @@ export async function previewDocument(file, page = 1, options = {}) {
     page, totalPages: scene.pages.length, format: scene.format,
     width: scene.pages.find(p => p.page === page)?.width, height: scene.pages.find(p => p.page === page)?.height,
     locations, searchMatches, searchQuery: options.search ?? '',
+    rendering: {
+      unmatchedTextCount: locations.filter(l => l.reason === 'text-unmatched').length,
+      message: locations.some(l => l.reason === 'text-unmatched')
+        ? '비교에서 읽은 문구 일부가 이 문서의 미리보기 텍스트에 없습니다. 내용 비교와 한컴 원본에서 확인해 주세요.' : '',
+    },
     // SVG is displayed in an <img>, never inserted as active document markup.
     image: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     warnings: friendlyWarnings(scene.warnings), technicalWarnings: scene.warnings,

@@ -66,6 +66,23 @@ test('friendly warnings explain impact; file labels keep suffix, version and esc
   assert.ok(!fileLabel('<img onerror="alert(1)">_v0.5.hwpx').includes('<img'));
 });
 
+test('missing rendered text is distinguished from an ambiguous location without inventing geometry', () => {
+  const text = '원본에서 읽은 긴 문구가 미리보기에서는 완전히 빠진 경우를 확인합니다.';
+  const scene = { pages: [{ page: 1, width: 500, height: 700 }], regions: [] };
+  const missing = locateChanges(scene, new Map([[1, '<svg><text>제목</text></svg>']]), [{ id: 1, block: { text } }])[0];
+  assert.equal(missing.reason, 'text-unmatched'); assert.deepEqual(missing.boxes, []);
+  assert.match(missing.message, /렌더링되지 않았을 수/);
+  const present = locateChanges(scene, new Map([[1, `<svg><text>${text}</text></svg>`]]), [{ id: 1, block: { text } }])[0];
+  assert.equal(present.reason, 'location-unmatched'); assert.deepEqual(present.boxes, []);
+});
+
+test('preview reports unverified rendered text near the document instead of assuming completeness', async () => {
+  const f = await sampleFiles();
+  const data = await previewDocument(f.oldFile, 1, { targets: [{ id: 1, type: 'modified', block: { text: '렌더링 결과에는 존재하지 않는 비교 문구를 전달해 검사 상태를 확인합니다.' }, cells: [] }] });
+  assert.equal(data.rendering.unmatchedTextCount, 1);
+  assert.match(data.rendering.message, /내용 비교/);
+});
+
 test('review regression files: five modifications, two excluded images, one late-table cell', async () => {
   const f = await reviewSamples(), result = await compareDocuments(f.oldFile, f.newFile);
   assert.equal(result.stats.modified, 5); assert.equal(result.stats.added + result.stats.removed, 0);

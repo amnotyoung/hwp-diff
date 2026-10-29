@@ -195,9 +195,9 @@ export function renderChangedCells(diff, query = '') {
   }).join('')}</div>`;
 }
 
-export function renderDiff(diff, documents, navigation = false, query = '') {
-  const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before', navigation && !diff.before?.table, query)}</section>
-    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after', navigation && !diff.after?.table, query)}</section></div>`;
+export function renderDiff(diff, documents, navigation = false, query = '', focus = navigation) {
+  const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before', focus && !diff.before?.table, query)}</section>
+    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after', focus && !diff.after?.table, query)}</section></div>`;
   // During search expose all searchable fields, including captions and footnotes.
   const compact = !query && diff.type === 'modified' && diff.cells.length > 0;
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
@@ -227,7 +227,7 @@ export function memoCardHtml(d, number, navigation = false, prefix = '') {
 }
 
 export function annotationsHtml(annotations, navigation = false) {
-  if (!annotations?.available) return `<p class="parse-warning">${escapeHtml(annotations?.message ?? '이 결과에는 메모 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
+  if (!annotations?.available) return `<p class="parse-warning"><strong>메모 미검사</strong><br>${escapeHtml(annotations?.message ?? '이 결과에는 메모 비교 정보가 없습니다. 다시 비교해 주세요.')}</p>`;
   const { stats, diffs, counts } = annotations;
   const changes = diffs.filter(d => d.type !== 'unchanged');
   const card = d => memoCardHtml(d, diffs.indexOf(d) + 1, navigation);

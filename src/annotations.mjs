@@ -100,7 +100,7 @@ export function compareMemos(before, after) {
 }
 
 export async function compareAnnotations(oldFile, newFile, formats) {
-  if (formats.some(f => f !== 'hwpx')) return { available: false, message: '메모 비교는 HWPX끼리 비교할 때 지원합니다. HWP 문서의 메모는 한컴에서 확인해 주세요.' };
+  if (formats.some(f => f !== 'hwpx')) return { available: false, reason: 'unsupported-format', message: 'HWP가 포함되어 메모는 검사하지 않았습니다. 한컴에서 메모를 확인하거나 두 파일을 HWPX로 저장해 다시 비교하세요.' };
   try {
     return compareMemos(await readHwpxMemos(oldFile.bytes), await readHwpxMemos(newFile.bytes));
   } catch {

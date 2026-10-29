@@ -38,7 +38,7 @@ function updateFiles() {
 function showError(message = '') { $('#error').textContent = message; $('#error').hidden = !message; }
 function clearResults() {
   result = null; previewCache.clear(); previewPages = { old: 1, new: 1 };
-  selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files');
+  selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files', 'details-open');
   contentPositionSaved = false;
   selectedMemoId = null; memoScroll = 0; memoEntryId = null;
   selectedFormatId = null; formatScroll = 0; formatEntryId = null;
@@ -99,7 +99,7 @@ function setBusy(busy, preview = false) {
   $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '렌더링 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
   $('.upload-panel').setAttribute('aria-busy', String(busy));
   updateFiles();
-  if (!busy) { updatePageButtons(); if (result) updateNavigator(); }
+  if (!busy) { updatePageButtons(); if (result) { updateNavigator(); updateVisibleSelection(); } }
   updateSearchControls();
   updateToolbar();
 }
@@ -141,9 +141,9 @@ function showResults() {
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
   $('#result-title').innerHTML = changeCounts(result);
-  $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
+  $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 미검사';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
-  $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : '서식 확인 필요';
+  $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : '서식 미검사';
   $('#format-panel').innerHTML = formattingHtml(result.formatting, true);
   $('#preview-format').innerHTML = '<option value="">서식 변경 선택</option>' + formats.map((d, i) => `<option value="${escapeHtml(d.id)}">구간 ${i + 1} · ${escapeHtml(d.changes.map(c => c.label).join('·'))} · ${escapeHtml(d.text.slice(0, 40))}</option>`).join('');
   $('#preview-format-control').hidden = !formatCount; $('#return-formats').hidden = !formatCount;
@@ -340,6 +340,7 @@ async function loadPreview(side, page, jump = false) {
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
   $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '문서 배치를 렌더링하고 있습니다…';
   $(`#${side}-preview-warnings`).textContent = '';
+  $(`#${side}-render-notice`).hidden = true;
   try {
     let data = previewCache.get(key);
     if (!data) {
@@ -364,8 +365,11 @@ async function loadPreview(side, page, jump = false) {
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
     const focused = data.locations?.find(l => l.id === activeFocusId());
-    if (side === 'new' && !selectedMemoId && !selectedFormatId) $('#preview-jump').textContent = focused?.navigationLabel ?? '변경 위치 보기';
-    $(`#${side}-preview-warnings`).innerHTML = `${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
+    const renderingNotice = $(`#${side}-render-notice`);
+    renderingNotice.hidden = !data.rendering?.message && !data.warnings.length;
+    renderingNotice.textContent = data.rendering?.message ? `렌더링 확인 필요 · ${data.rendering.unmatchedTextCount}개 문구 미확인 ⓘ` : '렌더링 주의사항 ⓘ';
+    renderingNotice.title = data.rendering?.message || data.warnings.join(' ');
+    $(`#${side}-preview-warnings`).innerHTML = `${data.rendering?.message ? `<p>${escapeHtml(data.rendering.message)}</p>` : ''}${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
     drawOverlays(side);
     await img.decode().catch(() => {});
     fitPreviewPages();
@@ -374,6 +378,7 @@ async function loadPreview(side, page, jump = false) {
     updateVisibleSelection();
   } catch (error) {
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
+    previewData[side] = null;
   }
 }
 async function showPreview(pages = { ...previewPages }, note = '', jump = false) {
@@ -451,7 +456,18 @@ $('#memo-panel').addEventListener('click', event => { const button = event.targe
 $('#format-panel').addEventListener('click', event => { const button = event.target.closest('[data-preview-format]'); if (button) jumpToFormat(button.dataset.previewFormat); });
 $('#preview-format').addEventListener('change', event => jumpToFormat(event.target.value));
 $('#return-formats').addEventListener('click', () => setView('formats'));
-$('#preview-jump').addEventListener('click', () => selectedFormatId ? jumpToFormat(selectedFormatId) : selectedMemoId ? jumpToMemo(selectedMemoId) : jumpToDiff(selectedId));
+$('#preview-jump').addEventListener('click', () => {
+  if ($('#preview-jump').dataset.retry === 'true') {
+    previewCache.clear(); previewLocations = { old: [], new: [] };
+  }
+  showPreview({ ...previewPages }, '', true);
+});
+function returnToComparison() {
+  const id = activeFocusId(), view = selectedFormatId ? 'formats' : selectedMemoId ? 'memos' : false;
+  setView(view);
+  if (id) selectNavigation(id);
+}
+$('#return-comparison').addEventListener('click', returnToComparison);
 $('#diff-list').addEventListener('click', event => { const button = event.target.closest('[data-preview-diff]'); if (button) jumpToDiff(button.dataset.previewDiff); });
 $('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; fitPreviewPages(); });
 for (const side of ['old', 'new']) {
@@ -487,23 +503,28 @@ function showSelectedDetail() {
     $('#selected-change-detail').innerHTML = index >= 0 ? memoCardHtml(memos[index], index + 1, false, 'selected-') : '';
     return;
   }
-  $('#selection-title').textContent = '선택한 변경';
   const diff = result?.diffs.find(d => d.id === selectedId);
+  $('#selection-title').textContent = diff ? `${labels[diff.type]} · 항목 ${diff.id}` : '선택한 변경';
   $('#selected-change-detail').innerHTML = diff
-    ? renderDiff(diff, result.documents).replace(`id="change-${diff.id}"`, `id="selected-${diff.id}"`)
+    ? renderDiff(diff, result.documents, false, '', true).replace(`id="change-${diff.id}"`, `id="selected-${diff.id}"`)
     : '<p>변경 항목을 선택하면 구버전·신버전 문구가 여기에 표시됩니다.</p>';
 }
 function updateVisibleSelection() {
   if (!result) return;
   const id = activeFocusId();
-  if (!id) { $('#preview-selection-status').textContent = '선택 항목 없음'; for (const side of ['old', 'new']) $(`#${side}-position-note`).hidden = true; return; }
+  if (!id) {
+    $('#preview-selection-status').textContent = '선택 항목 없음';
+    $('#preview-jump').disabled = true; $('#preview-location-details').hidden = true;
+    for (const side of ['old', 'new']) $(`#${side}-position-note`).hidden = true;
+    return;
+  }
   const label = selectedMemoId ? `메모 ${String(id).slice(5)}` : selectedFormatId ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
   const statuses = ['old', 'new'].map(side => {
     const location = previewData[side]?.locations.find(l => l.id === id), pages = [...new Set(location?.boxes.map(b => b.page) ?? [])];
     const note = $(`#${side}-position-note`), onPage = pages.includes(previewPages[side]);
     note.hidden = onPage;
-    note.disabled = !pages.length;
-    note.textContent = pages.length ? `선택 항목: 렌더링 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '선택 항목 위치 미확인';
+    note.disabled = location?.status === 'absent' || !!controller;
+    note.textContent = pages.length ? `선택 항목: 렌더링 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '위치 미확인 · 비교 내용으로 돌아가기 →';
     const prefix = side === 'old' ? '구버전' : '신버전';
     if (pages.includes(previewPages[side])) return `${prefix}: 현재 렌더링 ${previewPages[side]}쪽에 표시`;
     if (pages.length) return `${prefix}: 렌더링 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
@@ -511,6 +532,21 @@ function updateVisibleSelection() {
   });
   $('#preview-selection-status').textContent = `${label} — ${statuses.join(' / ')}`;
   $('#toggle-details').title = label;
+  const located = ['old', 'new'].map(side => ({ side, location: previewData[side]?.locations.find(l => l.id === id) }));
+  const failed = located.filter(({ location }) => !location || location.status === 'unresolved');
+  const partial = located.filter(({ location }) => location && ['partial', 'partial-text', 'table'].includes(location.status));
+  $('#preview-jump').hidden = false;
+  $('#preview-jump').dataset.retry = String(!!failed.length);
+  $('#preview-jump').disabled = !!controller || located.every(({ location }) => location?.status === 'absent');
+  $('#preview-jump').textContent = failed.length ? '위치 다시 찾기' : partial.length ? '확인된 영역 보기' : '변경 위치 보기';
+  const help = [...failed, ...partial].map(({ side, location }) => `${side === 'old' ? '구버전' : '신버전'}: ${location?.message || '미리보기 위치 정보를 가져오지 못했습니다.'}`);
+  $('#preview-location-details').hidden = !help.length;
+  $('#preview-location-summary').textContent = failed.some(({ location }) => location?.reason === 'text-unmatched') ? '미리보기 텍스트에서 문구를 찾지 못함 · 자세히' : failed.length ? '변경 위치 정보를 연결하지 못함 · 자세히' : '일부 위치만 확인됨 · 자세히';
+  $('#preview-location-help').textContent = help.join('\n');
+  $('#return-comparison').textContent = `${selectedFormatId ? '서식' : selectedMemoId ? '메모' : '내용'} 비교로 돌아가기`;
+  $('#preview-memo-control').hidden = !selectedMemoId;
+  $('#preview-format-control').hidden = !selectedFormatId;
+  $('#return-memos').hidden = true; $('#return-formats').hidden = true;
 }
 function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
@@ -632,12 +668,21 @@ function fitPreviewPages() {
 const previewResize = new ResizeObserver(() => fitPreviewPages());
 for (const side of ['old', 'new']) {
   previewResize.observe($(`#${side}-viewport`));
-  $(`#${side}-position-note`).addEventListener('click', () => showPreview({ [side]: previewPages[side] }, '', true));
+  $(`#${side}-position-note`).addEventListener('click', () => {
+    const location = previewData[side]?.locations.find(l => l.id === activeFocusId());
+    if (location?.boxes.length) showPreview({ [side]: previewPages[side] }, '', true);
+    else returnToComparison();
+  });
+  $(`#${side}-render-notice`).addEventListener('click', () => {
+    $(`#${side}-preview-warnings`).closest('.document-info').open = true;
+  });
 }
 function setDetails(open) {
+  document.body.classList.toggle('details-open', open);
   $('#selection-panel').hidden = !open; $('#toggle-details').setAttribute('aria-expanded', String(open));
   if (open) { $('#workbench-menu').open = false; showSelectedDetail(); $('#close-details').focus(); }
   else (compactScreen.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
+  requestAnimationFrame(fitPreviewPages);
 }
 $('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
 $('#expand-explanation').addEventListener('click', () => setDetails(true));

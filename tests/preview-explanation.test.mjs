@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { previewExplanation, changeCounts } from '../public/report.js';
+import { previewExplanation, changeCounts, renderDiff } from '../public/report.js';
 
 const diff = (before, after, extra = {}) => ({ id: 3, type: 'modified', before: { text: before }, after: { text: after }, cells: [], ...extra });
 
@@ -39,4 +39,14 @@ test('always-visible counts keep structure separate and exclude unsupported imag
   const html = changeCounts({ stats: { added: 3, removed: 1, modified: 5, unchanged: 70 }, structureStats: { changed: 2 }, unsupported: { before: [1, 2], after: [1, 2] } });
   assert.match(html, /수정 <strong>5<\/strong>/); assert.match(html, /구조 <strong>2<\/strong>/);
   assert.ok(!html.includes('70'));
+});
+
+test('detail pane shows the edit first without adding a redundant source-navigation button', () => {
+  const before = '동일한 문맥입니다. '.repeat(100);
+  const html = renderDiff(diff(before, before + '추가한 문장'), { before: {}, after: {} }, false, '', true);
+  assert.match(html, /data-edit>추가한 문장/);
+  assert.match(html, /문단 전체 내용 보기/);
+  assert.ok(!html.includes('data-preview-diff'));
+  const excerpts = [...html.matchAll(/<div class="block-text">(.*?)<\/div>/gs)].map(m => m[1]);
+  assert.ok(excerpts.every(text => text.length < 300));
 });
