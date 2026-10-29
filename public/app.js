@@ -1,6 +1,6 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, changeCounts } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
-import { canvasWidth } from './view-layout.js';
+import { canvasWidth, clipPageBoxes } from './view-layout.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -15,6 +15,7 @@ let previewSelectionId = null, demoReversed = false;
 const previewScrolls = new Map();
 let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
 let contentSearchKey = '', contentOffsets = new Map(), visibleSearchHits = new Map();
+let previewHighlights = true;
 const queryText = () => $('#search').value.trim();
 const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
 const compactScreen = matchMedia('(max-width: 560px)');
@@ -46,6 +47,7 @@ function clearResults() {
   previewSelectionId = null;
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
   contentSearchKey = ''; contentOffsets.clear(); visibleSearchHits.clear();
+  previewHighlights = true; $('#toggle-highlights').setAttribute('aria-pressed', 'true');
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   $('#selection-panel').hidden = true; $('#toggle-details').setAttribute('aria-expanded', 'false');
@@ -324,6 +326,7 @@ function updateToolbar() {
   }
   $('#preview-zoom').disabled = !preview;
   $('#toggle-details').disabled = !preview;
+  $('#toggle-highlights').disabled = !preview;
 }
 function updatePageButtons() {
   for (const side of ['old', 'new']) {
@@ -367,7 +370,7 @@ async function loadPreview(side, page, jump = false) {
     const focused = data.locations?.find(l => l.id === activeFocusId());
     const renderingNotice = $(`#${side}-render-notice`);
     renderingNotice.hidden = !data.rendering?.message && !data.warnings.length;
-    renderingNotice.textContent = data.rendering?.message ? `렌더링 확인 필요 · ${data.rendering.unmatchedTextCount}개 문구 미확인 ⓘ` : '렌더링 주의사항 ⓘ';
+    renderingNotice.textContent = data.rendering?.unmatchedTextCount ? `렌더링 확인 필요 · ${data.rendering.unmatchedTextCount}개 문구 미확인 ⓘ` : data.rendering?.invalidBoxCount ? '강조 위치 일부 미확인 ⓘ' : '렌더링 주의사항 ⓘ';
     renderingNotice.title = data.rendering?.message || data.warnings.join(' ');
     $(`#${side}-preview-warnings`).innerHTML = `${data.rendering?.message ? `<p>${escapeHtml(data.rendering.message)}</p>` : ''}${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
     drawOverlays(side);
@@ -550,26 +553,36 @@ function updateVisibleSelection() {
 }
 function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
+  svg.toggleAttribute('hidden', !previewHighlights);
   svg.replaceChildren(); if (!data) return;
   svg.setAttribute('viewBox', `0 0 ${data.width} ${data.height}`);
   const visibleIds = new Set([...filteredDiffs().map(d => d.id), ...(result?.annotations?.diffs ?? []).map(m => m.id), ...(result?.formatting?.diffs ?? []).map(d => d.id)]);
-  for (const location of (data.locations ?? []).filter(l => visibleIds.has(l.id))) for (const box of location.boxes.filter(b => b.page === data.page)) {
+  for (const location of (data.locations ?? []).filter(l => visibleIds.has(l.id))) {
+    const boxes = clipPageBoxes(location.boxes, data);
+    if (!boxes.length) continue;
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('tabindex', '0'); group.setAttribute('role', 'button'); group.setAttribute('data-change-id', String(location.id));
+    const isMemo = location.category === 'memo', isFormat = location.category === 'format';
+    group.setAttribute('aria-label', isFormat ? `서식 구간 ${String(location.id).slice(7)} 선택` : isMemo ? `메모 ${String(location.id).slice(5)} 선택` : `${labels[location.type]} 항목 ${location.id} 선택`);
+    const select = () => isFormat ? jumpToFormat(location.id) : isMemo ? jumpToMemo(location.id) : jumpToDiff(location.id);
+    group.addEventListener('click', select);
+    group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+    for (const box of boxes) {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     for (const prop of ['x', 'y', 'width', 'height']) rect.setAttribute(prop, String(box[prop]));
     const isMemo = location.category === 'memo';
     const isFormat = location.category === 'format';
     rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${isFormat ? ' format-region' : ''}${location.category === 'structure' ? ' structure-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
-    rect.setAttribute('data-change-id', String(location.id)); rect.setAttribute('tabindex', '0'); rect.setAttribute('role', 'button');
-    rect.setAttribute('aria-label', isFormat ? `서식 구간 ${String(location.id).slice(7)} 선택` : isMemo ? `메모 ${String(location.id).slice(5)} 선택` : `${labels[location.type]} 항목 ${location.id} 선택`);
-    const select = () => isFormat ? jumpToFormat(location.id) : isMemo ? jumpToMemo(location.id) : jumpToDiff(location.id);
-    rect.addEventListener('click', select);
-    rect.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
-    svg.append(rect);
+    rect.setAttribute('data-change-id', String(location.id));
+    group.append(rect);
+    }
+    svg.append(group);
   }
   const active = previewHits[searchIndex];
-  if (active?.side === side && active.page === data.page && queryText()) {
+  if (active?.side === side && clipPageBoxes([active], data).length && queryText()) {
+    const box = clipPageBoxes([active], data)[0];
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    for (const key of ['x', 'y', 'width', 'height']) rect.setAttribute(key, String(active[key]));
+    for (const key of ['x', 'y', 'width', 'height']) rect.setAttribute(key, String(box[key]));
     rect.setAttribute('class', 'search-region'); svg.append(rect);
   }
 }
@@ -685,6 +698,10 @@ function setDetails(open) {
   requestAnimationFrame(fitPreviewPages);
 }
 $('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
+$('#toggle-highlights').addEventListener('click', () => {
+  previewHighlights = !previewHighlights; $('#toggle-highlights').setAttribute('aria-pressed', String(previewHighlights));
+  for (const side of ['old', 'new']) drawOverlays(side);
+});
 $('#expand-explanation').addEventListener('click', () => setDetails(true));
 $('#close-details').addEventListener('click', () => setDetails(false));
 function setSearch(open) {

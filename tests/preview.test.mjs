@@ -83,6 +83,20 @@ test('preview reports unverified rendered text near the document instead of assu
   assert.match(data.rendering.message, /내용 비교/);
 });
 
+test('anchor and search paths never return zero-height or off-page highlights', () => {
+  const text = '변경된 문구를 찾았지만 렌더러의 영역 정보가 잘못된 경우입니다.';
+  const scene = { pages: [{ page: 3, width: 595, height: 842 }], regions: [{ id: 'p1', type: 'paragraph', regions: [
+    { page: 3, x: 20, y: 800, width: 100, height: 20 }, { page: 3, x: 20, y: 850, width: 100, height: 0 }, { page: 3, x: 20, y: 955, width: 100, height: 18 },
+  ] }] };
+  const svg = new Map([[3, `<svg><g data-kordoc-id="p1"><text>${text}</text></g></svg>`]]);
+  const result = locateChanges(scene, svg, [{ id: 1, type: 'modified', block: { text }, textAnchors: [{ context: text, start: 0, end: 5 }] }], '변경');
+  assert.equal(result.locations[0].discardedBoxes, 2);
+  assert.equal(result.locations[0].boxes.length, 1);
+  assert.equal(result.locations[0].status, 'partial-text');
+  assert.equal(result.searchMatches.length, 1);
+  assert.ok(result.locations[0].boxes.every(b => b.y + b.height <= 842 && b.height > 0));
+});
+
 test('review regression files: five modifications, two excluded images, one late-table cell', async () => {
   const f = await reviewSamples(), result = await compareDocuments(f.oldFile, f.newFile);
   assert.equal(result.stats.modified, 5); assert.equal(result.stats.added + result.stats.removed, 0);

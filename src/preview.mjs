@@ -24,8 +24,10 @@ export async function previewDocument(file, page = 1, options = {}) {
     locations, searchMatches, searchQuery: options.search ?? '',
     rendering: {
       unmatchedTextCount: locations.filter(l => l.reason === 'text-unmatched').length,
+      invalidBoxCount: locations.reduce((n, l) => n + (l.discardedBoxes ?? 0), 0),
       message: locations.some(l => l.reason === 'text-unmatched')
-        ? '비교에서 읽은 문구 일부가 이 문서의 미리보기 텍스트에 없습니다. 내용 비교와 한컴 원본에서 확인해 주세요.' : '',
+        ? '비교에서 읽은 문구 일부가 이 문서의 미리보기 텍스트에 없습니다. 내용 비교와 한컴 원본에서 확인해 주세요.'
+        : locations.some(l => l.discardedBoxes) ? '일부 변경 구간의 위치 정보가 페이지 밖이거나 비어 있어 강조하지 않았습니다. 내용 비교와 원본 파일에서 확인해 주세요.' : '',
     },
     // SVG is displayed in an <img>, never inserted as active document markup.
     image: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,

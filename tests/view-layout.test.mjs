@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasWidth } from '../public/view-layout.js';
+import { canvasWidth, clipPageBoxes } from '../public/view-layout.js';
 import { fileLabel } from '../public/report.js';
 
 test('page fit preserves the complete portrait or landscape sheet within both available dimensions', () => {
@@ -30,4 +30,13 @@ test('long Korean file names preserve their suffix without splitting decomposed 
   assert.ok(html.includes('_1007_1600.hwp'));
   assert.match(html, /class="file-name-start">긴문서제목/);
   assert.ok(html.includes('class="file-name-end"'));
+});
+
+test('page-local highlights clip edges, discard empty/off-page boxes and deduplicate', () => {
+  const page = { page: 3, width: 595, height: 842 };
+  const boxes = [{ page: 3, x: 20, y: 850, width: 100, height: 0 }, { page: 3, x: 20, y: 956, width: 100, height: 18 },
+    { page: 3, x: -10, y: 830, width: 100, height: 30 }, { page: 3, x: -10, y: 830, width: 100, height: 30 },
+    { page: 2, x: 0, y: 10, width: 30, height: 20 }, { page: 3, x: NaN, y: 10, width: 30, height: 20 }];
+  assert.deepEqual(clipPageBoxes(boxes, page), [{ page: 3, x: 0, y: 830, width: 90, height: 12 }]);
+  assert.deepEqual(clipPageBoxes(boxes, { ...page, page: 4 }), []);
 });

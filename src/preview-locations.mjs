@@ -1,5 +1,6 @@
 import { DOMParser } from '@xmldom/xmldom';
 import { normalizeText } from '../public/text-diff.js';
+import { clipPageBoxes } from '../public/view-layout.js';
 
 const normalize = text => (text ?? '').normalize('NFC').replace(/\\\$/g, '$').replace(/\s+/gu, '');
 const textOf = block => [block.text, ...(block.table?.cells ?? []).flat().filter(Boolean).map(c => c.text)].filter(Boolean).join('');
@@ -187,11 +188,18 @@ export function locateChanges(scene, pageSvgs, targets, search = '') {
     }
     const located = boxes(found);
     return { ...base, boxes: located, status: located.length ? status : 'unresolved', navigationLabel: status === 'table' ? '표 시작 쪽 보기' : status === 'cells' ? '변경 셀 보기' : '선택 위치 보기', message: located.length ? message : '표시 가능한 위치를 찾지 못했습니다. 변경 문구를 확인해 주세요.' };
+  }).map(location => {
+    const cleaned = scene.pages.flatMap(page => clipPageBoxes(location.boxes, page));
+    const discardedBoxes = location.boxes.filter(box => !clipPageBoxes([box], scene.pages.find(page => page.page === box.page)).length).length;
+    if (!discardedBoxes) return { ...location, boxes: cleaned };
+    return { ...location, boxes: cleaned, discardedBoxes,
+      status: cleaned.length ? 'partial-text' : 'unresolved', reason: 'invalid-geometry',
+      message: `페이지 밖이거나 크기가 없는 위치 정보 ${discardedBoxes}개를 제외했습니다. 표시하지 못한 구간은 내용 비교와 원본 파일에서 확인해 주세요.` };
   });
   if (search) {
     const needle = normalize(search).toLocaleLowerCase();
     const searchMatches = regions.filter(r => r.type === 'paragraph').flatMap(r => r.fragments.filter(f => normalize(f.text).toLocaleLowerCase().includes(needle)).flatMap(f =>
-      r.regions.filter(b => b.page === f.page).map(b => ({ ...b, id: `${r.id}:${f.page}`, text: f.text.slice(0, 200) }))));
+      clipPageBoxes(r.regions, scene.pages.find(p => p.page === f.page)).map(b => ({ ...b, id: `${r.id}:${f.page}`, text: f.text.slice(0, 200) }))));
     return { locations, searchMatches };
   }
   return locations;
