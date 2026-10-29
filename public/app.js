@@ -114,7 +114,7 @@ function showResults() {
   if (changed.length === 1 && !memoChanges && !formatCount) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
-  $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : '서식 확인 필요';
+  $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : '서식 확인 필요';
   $('#format-panel').innerHTML = formattingHtml(result.formatting, true);
   $('#preview-format').innerHTML = '<option value="">서식 변경 선택</option>' + formats.map((d, i) => `<option value="${escapeHtml(d.id)}">구간 ${i + 1} · ${escapeHtml(d.changes.map(c => c.label).join('·'))} · ${escapeHtml(d.text.slice(0, 40))}</option>`).join('');
   $('#preview-format-control').hidden = !formatCount; $('#return-formats').hidden = !formatCount;
@@ -125,7 +125,7 @@ function showResults() {
   $('#preview-body-control').hidden = !total; $('#preview-jump').hidden = !total;
   $('#stats').innerHTML = Object.entries(labels).map(([type, label]) => `<div class="stat ${type}"><span>${label}</span><strong>${result.stats[type]}<small>개 블록</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
-  if (result.formatting?.available === false) $('#warnings').insertAdjacentHTML('beforeend', `<p class="parse-warning">${escapeHtml(result.formatting.message)}</p>`);
+  if (result.formatting?.available === false) $('#warnings').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
   if (result.formatting?.incompleteRanges) $('#warnings').insertAdjacentHTML('beforeend', '<p class="parse-warning">일부 문구의 서식 대응을 확인하지 못했습니다. 서식 탭에서 확인해 주세요.</p>');
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
   for (const [side, key] of [['old', 'before'], ['new', 'after']]) {

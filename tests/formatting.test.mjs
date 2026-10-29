@@ -90,6 +90,16 @@ test('memo-only formatting is excluded and invalid used styles are not reported 
   assert.equal((await compareFormatting(doc, doc, ['hwp', 'hwpx'])).available, false);
 });
 
+test('HWP comparison explicitly reports unchecked formatting rather than zero changes', async () => {
+  const result = await compareFormatting(file(new Uint8Array()), file(new Uint8Array()), ['hwp', 'hwpx']);
+  assert.equal(result.reason, 'unsupported-format');
+  assert.match(result.message, /글자색·글꼴·자간·장평 변경은 검사하지 않았습니다/);
+  assert.match(result.message, /HWPX로 저장/);
+  const html = formattingHtml(result);
+  assert.ok(!html.includes('서식 변경 0곳'));
+  assert.ok(html.includes('검사하지 않았습니다'));
+});
+
 test('text and formatting can change together without conflating their counts', async () => {
   const a = new Uint8Array(await markdownToHwpx('공통 문장 120명'));
   const b = await editHwpx(a, (h, s) => {
