@@ -72,7 +72,9 @@ async function previewRequest(req) {
       : !Number.isInteger(t.id) || !['added', 'removed', 'modified'].includes(t.type)))) throw new HttpError(400, '올바르지 않은 변경 목록입니다.');
   }
   const rawFocus = form.get('focusId');
-  const options = { targets, focusId: typeof rawFocus === 'string' && /^memo-[1-9]\d*$/.test(rawFocus) ? rawFocus : Number(rawFocus), jump: form.get('jump') === '1' };
+  const search = form.get('search') ?? '';
+  if (typeof search !== 'string' || search.length > 100) throw new HttpError(400, '검색어는 100자 이하로 입력해 주세요.');
+  const options = { targets, search, focusId: typeof rawFocus === 'string' && /^memo-[1-9]\d*$/.test(rawFocus) ? rawFocus : Number(rawFocus), jump: form.get('jump') === '1' };
   if (form.get('demo') === '1') {
     const side = form.get('side');
     if (!['old', 'new'].includes(side)) throw new HttpError(400, '미리볼 문서를 선택해 주세요.');

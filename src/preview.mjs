@@ -6,10 +6,13 @@ import { locateChanges, friendlyWarnings } from './preview-locations.mjs';
 export async function previewDocument(file, page = 1, options = {}) {
   if (!Number.isInteger(page) || page < 1 || page > 2000) throw new Error('올바른 쪽 번호를 선택해 주세요.');
   const { scene, pageSvgs } = await renderDocumentToScene(file.bytes, {
-    pages: options.targets?.length ? undefined : [page], reflow: true, maxImageBytes: 5 * 1024 * 1024,
+    pages: options.targets?.length || options.search ? undefined : [page], reflow: true, maxImageBytes: 5 * 1024 * 1024,
+    highlights: options.search ? [options.search] : undefined,
   });
   if ([...pageSvgs.values()].reduce((n, s) => n + Buffer.byteLength(s), 0) > 64 * 1024 * 1024) throw new Error('미리보기 처리 용량을 넘습니다. 문서를 나누어 확인해 주세요.');
-  const locations = options.targets?.length ? locateChanges(scene, pageSvgs, options.targets) : [];
+  const located = options.targets?.length || options.search ? locateChanges(scene, pageSvgs, options.targets ?? [], options.search) : [];
+  const locations = Array.isArray(located) ? located : located.locations;
+  const searchMatches = Array.isArray(located) ? [] : located.searchMatches;
   const focus = locations.find(l => l.id === options.focusId);
   if (options.jump && focus?.boxes.length) page = focus.boxes[0].page;
   const svg = pageSvgs.get(page);
@@ -18,7 +21,7 @@ export async function previewDocument(file, page = 1, options = {}) {
   return {
     page, totalPages: scene.pages.length, format: scene.format,
     width: scene.pages.find(p => p.page === page)?.width, height: scene.pages.find(p => p.page === page)?.height,
-    locations,
+    locations, searchMatches,
     // SVG is displayed in an <img>, never inserted as active document markup.
     image: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     warnings: friendlyWarnings(scene.warnings), technicalWarnings: scene.warnings,

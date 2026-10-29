@@ -1,17 +1,19 @@
 import { DOMParser } from '@xmldom/xmldom';
+import { normalizeText } from '../public/text-diff.js';
 
 const normalize = text => (text ?? '').normalize('NFC').replace(/\\\$/g, '$').replace(/\s+/gu, '');
 const textOf = block => [block.text, ...(block.table?.cells ?? []).flat().filter(Boolean).map(c => c.text)].filter(Boolean).join('');
 
 // Read only the renderer's own group IDs and text. Never execute document markup.
-export function locateChanges(scene, pageSvgs, targets) {
-  const byId = new Map(scene.regions.map(r => [r.id, { ...r, text: '' }]));
-  for (const svg of pageSvgs.values()) {
+export function locateChanges(scene, pageSvgs, targets, search = '') {
+  const byId = new Map(scene.regions.map(r => [r.id, { ...r, text: '', fragments: [] }]));
+  for (const [page, svg] of pageSvgs) {
     const root = new DOMParser().parseFromString(svg, 'image/svg+xml');
     for (const group of Array.from(root.getElementsByTagName('g'))) {
       const region = byId.get(group.getAttribute('data-kordoc-id'));
       if (!region) continue;
-      region.text += Array.from(group.getElementsByTagName('text')).map(el => el.textContent).join('');
+      const text = Array.from(group.getElementsByTagName('text')).map(el => el.textContent).join('');
+      region.fragments.push({ page, text }); region.text += text;
     }
   }
   const regions = [...byId.values()];
@@ -64,6 +66,28 @@ export function locateChanges(scene, pageSvgs, targets) {
     }
     return cursor === paragraphs.length ? mapped : null;
   }
+  function anchorBoxes(anchors, candidates) {
+    const found = []; let missing = 0;
+    for (const anchor of anchors) {
+      const context = normalizeText(anchor.context); if (!context) { missing++; continue; }
+      let matches = candidates.filter(r => normalize(r.text) === context);
+      if (!matches.length && context.length >= 8) matches = candidates.filter(r => normalize(r.text).includes(context));
+      if (matches.length !== 1) { missing++; continue; }
+      const region = matches[0], text = normalize(region.text), at = text.indexOf(context);
+      if (text.lastIndexOf(context) !== at) { missing++; continue; }
+      const start = at + anchor.start, end = at + anchor.end;
+      let offset = 0, matched = false;
+      for (const fragment of region.fragments) {
+        const length = normalize(fragment.text).length;
+        if (start < offset + length && end > offset) {
+          found.push(...region.regions.filter(b => b.page === fragment.page)); matched = true;
+        }
+        offset += length;
+      }
+      if (!matched) missing++;
+    }
+    return { boxes: [...new Map(found.map(b => [JSON.stringify(b), b])).values()], missing };
+  }
   function findMemoParts(memo) {
     const parts = memo.anchorParts?.length ? memo.anchorParts : [{ text: memo.anchorText || memo.context, context: memo.context, tableSourceId: memo.tableSourceId }];
     const found = new Map(); let missing = 0;
@@ -93,7 +117,7 @@ export function locateChanges(scene, pageSvgs, targets) {
     const x = Math.max(0, b.x), y = Math.max(0, b.y);
     return { page: b.page, x, y, width: Math.min(page.width, b.x + b.width) - x, height: Math.min(page.height, b.y + b.height) - y };
   }).filter(b => b.width > 0 && b.height > 0);
-  return targets.map(target => {
+  const locations = targets.map(target => {
     const base = { id: target.id, type: target.type };
     if (target.category === 'memo') {
       const memoBase = { ...base, category: 'memo' };
@@ -109,6 +133,26 @@ export function locateChanges(scene, pageSvgs, targets) {
     const region = findRegion(target);
     if (!region) return { ...base, boxes: [], status: 'unresolved', message: '정확한 위치를 찾지 못했습니다. 옆의 변경 문구와 원본을 함께 확인해 주세요.' };
     let found = [region], status = 'paragraph', message = '변경된 문단을 표시했습니다.';
+    const anchors = target.block.table ? (target.cells ?? []).flatMap(c => c.anchors ?? []) : target.textAnchors ?? [];
+    if (anchors.length) {
+      const cells = target.block.table ? cellRegions(target.block.table, region) : null;
+      const scoped = target.block.table ? regions.filter(r => {
+        if (r.type !== 'paragraph') return false;
+        for (let p = byId.get(r.parentId); p; p = byId.get(p.parentId)) if (p.id === region.id) return true;
+        return false;
+      }) : [region];
+      let located = [], missing = 0;
+      if (target.block.table) for (const cell of target.cells ?? []) {
+        const match = anchorBoxes(cell.anchors ?? [], cells?.get(`${cell.row}:${cell.col}`) ?? scoped);
+        located.push(...match.boxes); missing += match.missing;
+      } else { const match = anchorBoxes(anchors, scoped); located = match.boxes; missing = match.missing; }
+      if (located.length) {
+        const contextOnly = anchors.every(a => a.contextOnly);
+        return { ...base, boxes: located.sort((a, b) => a.page - b.page || a.y - b.y), status: contextOnly ? 'context' : missing ? 'partial-text' : target.block.table ? 'cells' : 'paragraph',
+          navigationLabel: contextOnly ? '주변 문맥 보기' : '변경 위치 보기',
+          message: contextOnly ? '이 버전에는 해당 변경 문구가 없어 주변 문맥을 표시했습니다.' : missing ? '위치를 확인한 변경 문구만 표시했습니다.' : '변경 문구가 있는 문단을 표시했습니다.' };
+      }
+    }
     if (target.block.table) {
       status = 'table'; message = '변경된 표 영역을 표시했습니다.';
       if (target.cells?.length) {
@@ -120,8 +164,15 @@ export function locateChanges(scene, pageSvgs, targets) {
       }
     }
     const located = boxes(found);
-    return { ...base, boxes: located, status: located.length ? status : 'unresolved', message: located.length ? message : '표시 가능한 위치를 찾지 못했습니다. 변경 문구를 확인해 주세요.' };
+    return { ...base, boxes: located, status: located.length ? status : 'unresolved', navigationLabel: status === 'table' ? '표 시작 쪽 보기' : '변경 셀 보기', message: located.length ? message : '표시 가능한 위치를 찾지 못했습니다. 변경 문구를 확인해 주세요.' };
   });
+  if (search) {
+    const needle = normalize(search).toLocaleLowerCase();
+    const searchMatches = regions.filter(r => r.type === 'paragraph').flatMap(r => r.fragments.filter(f => normalize(f.text).toLocaleLowerCase().includes(needle)).flatMap(f =>
+      r.regions.filter(b => b.page === f.page).map(b => ({ ...b, id: `${r.id}:${f.page}`, text: f.text.slice(0, 200) }))));
+    return { locations, searchMatches };
+  }
+  return locations;
 }
 
 export function friendlyWarnings(warnings) {
