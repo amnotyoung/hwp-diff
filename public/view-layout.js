@@ -7,6 +7,11 @@ export function canvasWidth(page, availableWidth, availableHeight, zoom) {
   return Number.isFinite(percent) && percent > 0 ? Math.floor(page.width * 96 / 72 * percent / 100) : null;
 }
 
+export function validatePageInput(value, current, total) {
+  const page = Number(value), valid = String(value).trim() !== '' && Number.isSafeInteger(page) && page >= 1 && page <= total;
+  return { valid, page: valid ? page : current, message: valid ? '' : `1~${total}쪽을 입력하세요. ${current}쪽으로 되돌렸습니다.` };
+}
+
 // Kordoc scene coordinates are page-local points. Never move an invalid box
 // to a guessed page: intersect it with its declared page and drop empty areas.
 export function clipPageBoxes(boxes, page) {

@@ -16,7 +16,7 @@ test('long translated cells split at shared headings and preserve one-to-many pa
   const segments = comparisonSegments(entry);
   assert.equal(segments.length, 2);
   assert.match(segments[1].after, /1\. 새 방안/); assert.match(segments[1].after, /2\. 추가 검토/);
-  assert.equal(textSummary(entry), '문단 구간 2곳 변경');
+  assert.equal(textSummary(entry), '세부 변경 구간 2개');
 });
 
 test('long text preserves common words and reconstructs both versions exactly', () => {

@@ -1,6 +1,6 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, filterCounts, comparisonSegments } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
-import { canvasWidth, clipPageBoxes, previewNotice } from './view-layout.js';
+import { canvasWidth, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -14,17 +14,19 @@ let previewOpened = false;
 let previewSelectionId = null, demoReversed = false;
 const previewScrolls = new Map();
 let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
+let searchRevision = 0, searchComposing = false, searchPending = false;
 let contentSearchKey = '', contentOffsets = new Map(), visibleSearchHits = new Map();
 let previewHighlights = true;
 const segmentSelections = new Map(), segmentSides = new Map();
 const queryText = () => $('#search').value.trim();
-const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
+const previewKey = (side, page, query = queryText()) => JSON.stringify([side, page, query]);
 const compactScreen = matchMedia('(max-width: 560px)');
 const compactToolbar = matchMedia('(max-width: 960px)');
 function applyCompactScreen() {
   $('#filter-panel').open = !compactScreen.matches;
-  const destination = compactToolbar.matches ? $('#workbench-menu .menu-body') : $('.primary-actions');
+  const destination = compactToolbar.matches ? $('#preview-inline-tools') : $('.primary-actions');
   destination.append($('#preview-actions'));
+  $('#preview-inline-tools').hidden = !compactToolbar.matches;
 }
 compactScreen.addEventListener('change', applyCompactScreen); applyCompactScreen();
 compactToolbar.addEventListener('change', applyCompactScreen);
@@ -49,6 +51,7 @@ function clearResults() {
   previewOpened = false; previewScrolls.clear();
   previewSelectionId = null;
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
+  searchRevision++; searchComposing = false; searchPending = false;
   contentSearchKey = ''; contentOffsets.clear(); visibleSearchHits.clear();
   previewHighlights = true; $('#toggle-highlights').setAttribute('aria-pressed', 'true');
   segmentSelections.clear(); segmentSides.clear(); $('#counterpart-dialog').close();
@@ -59,7 +62,10 @@ function clearResults() {
   document.querySelectorAll('.document-info').forEach(el => { el.open = false; });
   $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
   $('#preview-zoom').value = 'page';
-  for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = 'page';
+  for (const side of ['old', 'new']) {
+    $(`#${side}-viewport`).dataset.zoom = 'page';
+    $(`#${side}-page`).value = '1'; $(`#${side}-page`).setCustomValidity(''); $(`#${side}-page-error`).hidden = true;
+  }
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-canvas`).hidden = true; $(`#${side}-overlays`).replaceChildren(); }
   setView(false);
 }
@@ -100,7 +106,7 @@ $('#reset').addEventListener('click', () => {
 function setBusy(busy, preview = false) {
   for (const id of ['demo', 'swap', 'swap-result', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change']) $(`#${id}`).disabled = busy;
   document.querySelectorAll('[data-preview-diff], [data-preview-memo], [data-preview-format], #preview-memo, #preview-format').forEach(b => { b.disabled = busy; });
-  document.querySelectorAll('[data-filter], #search').forEach(b => { b.disabled = busy; });
+  document.querySelectorAll('[data-filter]').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-segment-step], #previous-segment, #next-segment').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
   $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '미리보기 준비 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
@@ -141,19 +147,19 @@ function showResults() {
   const memoStats = result.annotations?.stats;
   const memoChanges = memoStats ? memoStats.added + memoStats.removed + memoStats.modified : 0;
   const formats = result.formatting?.diffs ?? [], formatCount = formats.length;
-  $('#result-title').textContent = memoChanges ? `본문 변경 ${total}개 · 메모 변경 ${memoChanges}개` : total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
+  $('#result-title').textContent = memoChanges ? `내용 변경 항목 ${total}개 · 메모 변경 ${memoChanges}개` : total ? `${total}개 항목에서 변경을 찾았습니다` : result.diffs.length ? '비교 대상 본문·표의 변경이 없습니다' : '비교 가능한 본문·표가 없습니다';
   const changed = result.diffs.filter(d => d.type !== 'unchanged');
-  if (formatCount) $('#result-title').textContent = `내용 변경 ${total}개 · 서식 변경 ${formatCount}곳${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
+  if (formatCount) $('#result-title').textContent = `내용 변경 항목 ${total}개 · 서식 변경 구간 ${formatCount}개${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (changed.length === 1 && !memoChanges && !formatCount) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
-  if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 ${formatCount}곳` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
+  if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 항목 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 구간 ${formatCount}개` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
   const counts = filterCounts(result), filterLabels = { changes: '변경만', all: '전체', added: '추가', removed: '삭제', modified: '수정', structure: '구조' };
   document.querySelectorAll('[data-filter]').forEach(button => {
     const key = button.dataset.filter, label = filterLabels[key];
-    button.innerHTML = `<span class="filter-label">${label}</span><span class="filter-count">${counts[key]}</span>`;
+    button.innerHTML = `<span class="filter-label">${label}</span><span class="filter-count">${counts[key]}${['changes', 'all'].includes(key) ? '<span class="filter-unit">항목</span>' : ''}</span>`;
     button.setAttribute('aria-label', `${label} ${counts[key]}개 항목`);
-    button.title = '본문·표의 내용 변경 기준';
+    button.title = '문단·표를 한 항목으로 집계합니다.';
   });
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 미검사';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
@@ -235,10 +241,12 @@ function updateNavigator() {
   else if (category === 'format') selectedFormatId = active;
   else selectedId = active;
   const position = changes.findIndex(d => d.id === active);
-  const description = d => category === 'format' ? `서식 · ${d.text}` : category === 'memo' ? `메모 ${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
-  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${escapeHtml(d.id)}">${i + 1} / ${changes.length} · ${escapeHtml(description(d).slice(0, 90))}</option>`).join('') || '<option value="">변경 없음</option>';
+  const scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : '내용 항목';
+  const description = d => category === 'format' ? `${d.changes.map(c => c.label).join('·')} · ${d.text}` : category === 'memo' ? `${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
+  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${escapeHtml(d.id)}">${scope} ${i + 1}/${changes.length} · ${escapeHtml(description(d).slice(0, 90))}</option>`).join('') || `<option value="">${scope} 없음</option>`;
   $('#change-list').value = active ?? '';
-  $('#change-position').textContent = changes.length ? `${position + 1} / ${changes.length}개 변경` : '해당 변경 없음';
+  $('#change-position').textContent = changes.length ? `${scope} ${position + 1}/${changes.length}` : `${scope} 없음`;
+  $('#change-list').setAttribute('aria-label', `${scope} 선택`);
   $('#change-list').title = changes[position] ? description(changes[position]).slice(0, 150) : '해당 변경 없음';
   $('#change-list').disabled = !!controller || !changes.length;
   $('#previous-change').disabled = !!controller || position <= 0;
@@ -288,8 +296,17 @@ $('#edit-files').addEventListener('click', () => {
   $('#edit-files').setAttribute('aria-expanded', String(expanded));
   if (expanded) $('.upload-panel').scrollIntoView({ block: 'start' });
 });
-$('#filters').addEventListener('click', event => { const button = event.target.closest('[data-filter]'); if (button) { filter = button.dataset.filter; shown = 50; renderList(); } });
-$('#search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 220); });
+$('#filters').addEventListener('click', event => {
+  const button = event.target.closest('[data-filter]'); if (!button || button.disabled || controller) return;
+  selectedMemoId = null; selectedFormatId = null; $('#preview-memo').value = ''; $('#preview-format').value = '';
+  filter = button.dataset.filter; shown = 50; renderList(); updateToolbar();
+});
+$('#search').addEventListener('input', event => {
+  searchRevision++; searchPending = true; clearTimeout(searchTimer); updateSearchControls();
+  if (!searchComposing && !event.isComposing) searchTimer = setTimeout(applySearch, 220);
+});
+$('#search').addEventListener('compositionstart', () => { searchComposing = true; clearTimeout(searchTimer); });
+$('#search').addEventListener('compositionend', () => { searchComposing = false; searchRevision++; clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 220); });
 $('#load-more').addEventListener('click', () => { shown += 50; renderList(); });
 function download(contents, type, extension) {
   const url = URL.createObjectURL(new Blob([contents], { type }));
@@ -331,7 +348,9 @@ function setView(preview) {
 function updateToolbar() {
   const preview = !$('#preview-panel').hidden;
   const content = preview || !$('#content-panel').hidden;
-  document.querySelectorAll('[data-filter], #search, #toggle-search').forEach(el => { el.disabled = !!controller || !content; });
+  document.querySelectorAll('[data-filter]').forEach(el => { el.disabled = !!controller || !content; });
+  // Keep the active input enabled during preview requests; disabling it blurs it.
+  for (const id of ['search', 'toggle-search']) $(`#${id}`).disabled = !content || !result;
   if (!content) {
     $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
     clearSearch();
@@ -347,11 +366,11 @@ function updatePageButtons() {
     $(`#${side}-next`).disabled = !cached || cached.page >= cached.totalPages;
   }
 }
-async function loadPreview(side, page, jump = false) {
+async function loadPreview(side, page, jump = false, searchQuery = queryText(), focusId = activeFocusId()) {
   if (previewOpened) savePreviewScroll(side);
-  const location = previewLocations[side].find(l => l.id === activeFocusId());
+  const location = previewLocations[side].find(l => l.id === focusId);
   if (jump && location?.boxes.length) page = location.boxes[0].page;
-  const key = previewKey(side, page);
+  const key = previewKey(side, page, searchQuery);
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
   $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '미리보기를 준비하고 있습니다…';
   $(`#${side}-preview-warnings`).textContent = '';
@@ -363,9 +382,9 @@ async function loadPreview(side, page, jump = false) {
     let data = previewCache.get(key);
     if (!data) {
       const form = new FormData(); form.append('page', String(page));
-      form.append('search', queryText());
+      form.append('search', searchQuery);
       form.append('targets', JSON.stringify(previewTargets(result, side)));
-      if (activeFocusId()) form.append('focusId', String(activeFocusId()));
+      if (focusId) form.append('focusId', String(focusId));
       if (jump) form.append('jump', '1');
       if (isDemo) { form.append('demo', '1'); form.append('side', side); if (demoReversed) form.append('reverse', '1'); }
       else form.append('file', files[side]);
@@ -373,8 +392,9 @@ async function loadPreview(side, page, jump = false) {
       data = await response.json();
       if (!response.ok) throw new Error(data.error ?? '미리보기를 만들 수 없습니다.');
       if (previewCache.size >= 8) previewCache.delete(previewCache.keys().next().value);
-      previewCache.set(previewKey(side, data.page), data);
+      previewCache.set(previewKey(side, data.page, searchQuery), data);
     }
+    if (searchQuery !== queryText()) return;
     previewLocations[side] = data.locations ?? []; previewData[side] = data;
     previewPages[side] = data.page;
     img.src = data.image; $(`#${side}-canvas`).hidden = false; message.hidden = true;
@@ -392,21 +412,24 @@ async function loadPreview(side, page, jump = false) {
   } catch (error) {
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
     previewData[side] = null;
+    $(`#${side}-page`).value = String(previewPages[side]);
   }
 }
 async function showPreview(pages = { ...previewPages }, note = '', jump = false) {
   if (!result || controller) return;
   setView(true); controller = new AbortController(); setBusy(true, true);
+  const requestedQuery = queryText(), requestedFocus = activeFocusId();
   showSelectedDetail();
   $('#preview-status').textContent = note || '색칠된 영역은 변경된 문단·셀입니다. 선택한 변경은 진한 테두리로 표시합니다.';
   try {
     for (const [side, page] of Object.entries(pages)) {
-      if (controller.signal.aborted) break;
-      await loadPreview(side, page, jump);
+      if (controller.signal.aborted || requestedQuery !== queryText()) break;
+      await loadPreview(side, page, jump, requestedQuery, requestedFocus);
     }
   } finally { controller = null; setBusy(false); }
+  if (requestedQuery !== queryText()) return;
   previewOpened = true;
-  previewSelectionId = activeFocusId();
+  previewSelectionId = requestedFocus;
   previewHits = ['new', 'old'].flatMap(side => (previewData[side]?.searchQuery === queryText() ? previewData[side]?.searchMatches ?? [] : []).map(hit => ({ ...hit, side })));
   updateSearchControls();
 }
@@ -486,15 +509,19 @@ $('#diff-list').addEventListener('click', event => { const button = event.target
 $('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; fitPreviewPages(); });
 for (const side of ['old', 'new']) {
   const input = $(`#${side}-page`);
+  let edited = false;
   const go = () => {
-    if (controller) return;
-    const page = Number(input.value), max = previewData[side]?.totalPages ?? 1;
-    input.setCustomValidity(Number.isInteger(page) && page >= 1 && page <= max ? '' : `1~${max} 사이의 쪽 번호를 입력하세요.`);
-    if (!input.reportValidity() || page === previewPages[side]) return;
-    showPreview({ [side]: page });
+    if (controller || !edited) return;
+    edited = false;
+    const checked = validatePageInput(input.value, previewPages[side], previewData[side]?.totalPages ?? 1), error = $(`#${side}-page-error`);
+    input.value = String(checked.page); input.setCustomValidity('');
+    error.textContent = checked.message; error.hidden = checked.valid;
+    if (!checked.valid || checked.page === previewPages[side]) return;
+    showPreview({ [side]: checked.page });
   };
-  input.addEventListener('input', () => input.setCustomValidity(''));
+  input.addEventListener('input', () => { edited = true; input.setCustomValidity(''); $(`#${side}-page-error`).hidden = true; });
   input.addEventListener('change', go);
+  input.addEventListener('blur', go);
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); go(); } });
   $(`#${side}-prev`).addEventListener('click', () => showPreview({ [side]: previewPages[side] - 1 }));
   $(`#${side}-next`).addEventListener('click', () => showPreview({ [side]: previewPages[side] + 1 }));
@@ -717,31 +744,35 @@ function updateSearchControls() {
   const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
   const query = queryText();
   const total = filteredDiffs().length;
-  $('#search-count').textContent = query ? preview
+  $('#search-count').textContent = query ? searchPending ? '검색 중…' : preview
     ? `원본 전체에서 ${hits.length}개 문단 일치 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
     : `전체 검색 결과 ${total}개 항목 · ${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}` : '';
   $('#search-count').title = preview ? '원본 전체 문서 기준' : '선택한 변경 유형의 전체 결과를 검색합니다. 아직 표시되지 않은 항목도 자동으로 불러와 이동합니다.';
-  $('#previous-match').disabled = !query || !hits.length || !!controller;
-  $('#next-match').disabled = !query || !hits.length || !!controller;
+  $('#previous-match').disabled = !query || !hits.length || !!controller || searchPending;
+  $('#next-match').disabled = !query || !hits.length || !!controller || searchPending;
   $('#toggle-search').classList.toggle('has-query', !!query);
   $('#toggle-search').title = query ? `검색: ${query}` : '검색';
 }
 async function applySearch() {
   if (!result) return;
   if (controller) { searchTimer = setTimeout(applySearch, 120); return; }
+  const revision = searchRevision, query = queryText();
   const preview = !$('#preview-panel').hidden;
   shown = 50; renderList(); searchIndex = -1;
   if (preview) {
     await showPreview({ ...previewPages }, queryText() ? '원본 전체에서 검색합니다.' : '', false);
+    if (revision !== searchRevision || query !== queryText() || $('#preview-panel').hidden) return;
     if (queryText() && previewHits.length) {
       const onPage = previewHits.findIndex(h => h.side === 'new' && h.page === previewPages.new);
       await focusMatch(onPage < 0 ? 0 : onPage);
     }
   } else if (queryText() && contentHits.length) await focusMatch(0);
+  if (revision === searchRevision && query === queryText()) searchPending = false;
   updateSearchControls();
 }
 async function focusMatch(index) {
   if (controller) return;
+  const query = queryText(), revision = searchRevision;
   const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
   if (!hits.length) return;
   searchIndex = (index + hits.length) % hits.length;
@@ -756,9 +787,11 @@ async function focusMatch(index) {
   } else {
     const hit = hits[searchIndex];
     if (previewPages[hit.side] !== hit.page) await showPreview({ [hit.side]: hit.page }, '원본 검색 결과', false);
+    if (query !== queryText() || revision !== searchRevision || $('#preview-panel').hidden) return;
     setPreviewSide(hit.side);
     for (const side of ['old', 'new']) drawOverlays(side);
     const data = previewData[hit.side], canvas = $(`#${hit.side}-canvas`), viewport = $(`#${hit.side}-viewport`);
+    if (!data || data.page !== hit.page || data.searchQuery !== query) return;
     const scale = canvas.getBoundingClientRect().width / data.width;
     if ($('#preview-zoom').value !== 'page') viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
     if (compactScreen.matches && $('#preview-zoom').value === 'fit') $(`#${hit.side}-overlays .search-region`)?.scrollIntoView({ block: 'center' });
@@ -809,7 +842,7 @@ function setDetails(open) {
   document.body.classList.toggle('details-open', open);
   $('#selection-panel').hidden = !open; $('#toggle-details').setAttribute('aria-expanded', String(open));
   if (open) { $('#workbench-menu').open = false; showSelectedDetail(); $('#close-details').focus(); }
-  else (compactToolbar.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
+  else $('#toggle-details').focus();
   requestAnimationFrame(fitPreviewPages);
 }
 $('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
@@ -826,6 +859,8 @@ function setSearch(open, restoreFocus = true) {
 }
 function clearSearch() {
   if (!$('#search').value) return;
+  searchRevision++;
+  searchPending = false;
   clearTimeout(searchTimer);
   $('#search').value = ''; searchIndex = -1; previewHits = [];
   // Restore content immediately even if an in-flight preview must finish first.

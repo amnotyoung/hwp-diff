@@ -37,11 +37,12 @@ export function highlight(before = '', after = '') {
 
 export function textSummary(diff) {
   const segments = comparisonSegments(diff);
-  if (segments.some(s => s.divided)) return `문단 구간 ${segments.length}곳 변경`;
+  if (segments.some(s => s.divided)) return `세부 변경 구간 ${segments.length}개`;
   const pairs = diff.cells.length ? diff.cells.map(c => [c.before?.text ?? '', c.after?.text ?? '']) : [[blockText(diff.before), blockText(diff.after)]];
   const counts = { added: 0, removed: 0, modified: 0 };
   for (const [a, b] of pairs) for (const change of textChanges(a, b)) counts[change.type]++;
-  return Object.entries(counts).filter(([, n]) => n).map(([type, n]) => `문구 ${n}곳 ${labels[type]}`).join(' · ');
+  const summary = Object.entries(counts).filter(([, n]) => n).map(([type, n]) => `문구 ${n}곳 ${labels[type]}`).join(' · ');
+  return summary ? `세부 변경 · ${summary}` : '';
 }
 
 export function comparisonSegments(diff) {
@@ -283,7 +284,7 @@ export function exportHtml(result) {
   body{font:16px/1.7 "Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;color:#19202C;margin:40px auto;max-width:1100px;padding:0 24px}h1{font-size:28px;color:#0A46A5}p{overflow-wrap:anywhere}.diff-card{border:1px solid #DCE2E8;border-radius:8px;margin:20px 0;break-inside:avoid;overflow:hidden}.diff-heading{padding:10px 16px;background:#F5F7F9;display:flex;gap:14px}.diff-columns{display:grid;grid-template-columns:1fr 1fr}.diff-columns section{padding:16px;min-width:0}.before{border-right:1px solid #DCE2E8}.location,.table-meta{font-size:12px;color:#67717C}.block-text,td{white-space:pre-wrap;overflow-wrap:anywhere}mark{color:inherit;border-radius:2px}.removed{background:#F8D5DE}.added{background:#CBF0E8}.type-badge{font-size:12px;padding:1px 8px;border-radius:4px}.modified{background-color:#FFF4D8}.diff-card.modified{background:white}.doc-table{width:100%;border-collapse:collapse;font-size:16px}td{border:1px solid #DCE2E8;padding:8px}.cell-before{background:#FCE9ED}.cell-after{background:#E2F7F3}.merge-note{display:block;color:#8c510d}.empty-block{color:#888}.parse-warning{background:#FFFBF1;padding:16px}.table-scroll{overflow:auto}.footnote{font-size:12px}li{margin:5px 0}@media print{body{max-width:none;margin:0;padding:0;font-size:11px}.diff-card{break-inside:auto}mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}}@page{size:A4 landscape;margin:12mm}
   .memo-card,.format-card{border:1px solid #DCE2E8;margin:18px 0;break-inside:avoid}.memo-card section,.format-card section{padding:14px}.memo-text,.format-excerpt{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope,.format-scope{font-size:12px;color:#67717C}.format-values{width:100%;border-collapse:collapse}.format-values th,.format-values td{border:1px solid #DCE2E8;padding:8px;text-align:left}.format-text{background:#DAEBFA}.color-swatch{width:12px;height:12px;margin-right:6px}
   </style></head><body><h1>문서 신구대조표</h1><p>구버전: ${escapeHtml(result.documents.before.name)}<br>신버전: ${escapeHtml(result.documents.after.name)}</p>
-  <p>추가 ${result.stats.added} · 삭제 ${result.stats.removed} · 수정 ${result.stats.modified} · 동일 ${result.stats.unchanged} (블록 기준)</p>
+  <p>추가 ${result.stats.added}항목 · 삭제 ${result.stats.removed}항목 · 수정 ${result.stats.modified}항목 · 동일 ${result.stats.unchanged}항목 (문단·표 기준)</p>
   ${result.structureStats?.changed ? `<p>제목·문단 구조 변경 ${result.structureStats.changed}개 · 본문 추가/삭제와 별도 집계</p>` : ''}
   <p>${escapeHtml(result.engine)} · ${escapeHtml(result.createdAt)} · 실제 내용의 일치 여부로 판정</p>
   ${warningsHtml(result)}<ul>${result.limitations.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>

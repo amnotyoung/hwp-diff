@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasWidth, clipPageBoxes, previewNotice } from '../public/view-layout.js';
+import { canvasWidth, clipPageBoxes, previewNotice, validatePageInput } from '../public/view-layout.js';
 import { fileLabel } from '../public/report.js';
 
 test('page fit preserves the complete portrait or landscape sheet within both available dimensions', () => {
@@ -22,6 +22,16 @@ test('hidden or invalid viewports are not assigned bogus page sizes', () => {
   assert.equal(canvasWidth({ width: 595, height: 842 }, 0, 400, 'page'), null);
   assert.equal(canvasWidth({ width: 0, height: 842 }, 400, 400, 'page'), null);
   assert.equal(canvasWidth({ width: 595, height: 842 }, 400, 400, 'unknown'), null);
+});
+
+test('invalid page edits restore the actual displayed page instead of leaving a false page label', () => {
+  for (const value of ['0', '-1', '2.5', '999', '', 'NaN', 'Infinity']) {
+    const result = validatePageInput(value, 4, 11);
+    assert.equal(result.valid, false); assert.equal(result.page, 4);
+    assert.match(result.message, /1~11쪽/); assert.match(result.message, /4쪽으로 되돌렸습니다/);
+  }
+  assert.deepEqual(validatePageInput('11', 4, 11), { valid: true, page: 11, message: '' });
+  assert.deepEqual(validatePageInput('4', 4, 11), { valid: true, page: 4, message: '' });
 });
 
 test('long Korean file names preserve their suffix without splitting decomposed syllables', () => {

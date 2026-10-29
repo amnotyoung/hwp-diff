@@ -8,7 +8,7 @@ test('a long unchanged prefix is collapsed and the appended sentence is visible 
   const html = focusedText(a, b, 'after');
   assert.ok(html.length < 250); assert.match(html, /data-edit>추가된 후속 조치 문장입니다/);
   assert.equal(textChanges(a, b).length, 1); assert.equal(textChanges(a, b)[0].type, 'added');
-  assert.equal(textSummary({ before: null, after: null, cells: [{ before: { text: a }, after: { text: b } }] }), '문구 1곳 추가');
+  assert.equal(textSummary({ before: null, after: null, cells: [{ before: { text: a }, after: { text: b } }] }), '세부 변경 · 문구 1곳 추가');
 });
 test('edit offsets reconstruct Unicode strings and retain separated changes', () => {
   const a = '😀 한글 500 / 120명', b = '😀 한글 501 / 180명';
