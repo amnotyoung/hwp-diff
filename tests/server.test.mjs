@@ -66,6 +66,13 @@ test('preview API accepts memo identifiers, navigates to the memo and rejects in
   f.set('targets', JSON.stringify([{ id: 'memo-<script>', category: 'memo', type: 'added', memo: null }]));
   assert.equal((await post('/api/preview', f)).status, 400);
 });
+
+test('preview search returns matching paragraphs and binds cached images to the query', async () => {
+  const f = new FormData(); f.append('file', new Blob([files.newFile.bytes]), files.newFile.name); f.append('search', '보건소');
+  const response = await post('/api/preview', f); assert.equal(response.status, 200);
+  const data = await response.json(); assert.equal(data.searchQuery, '보건소'); assert.ok(data.searchMatches.length > 0);
+  f.set('search', 'x'.repeat(101)); assert.equal((await post('/api/preview', f)).status, 400);
+});
 test('missing files, unsupported extension, corrupt bytes and oversize request are rejected', async () => {
   assert.equal((await post('/api/compare', new FormData())).status, 400);
   assert.equal((await post('/api/compare', form({ ...files.oldFile, name: 'not.pdf' }))).status, 400);

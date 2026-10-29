@@ -28,4 +28,5 @@ test('search windows expose literal metacharacters and distant unchanged text sa
   const html = focusedText(a, a + '\n추가', 'after', '후속');
   assert.ok(html.length < 250); assert.match(html, /후속 확인/);
   assert.ok(!focusedText('', '<script>', 'after').includes('<script>'));
+  assert.match(focusedText('앞'.repeat(900), '후속', 'before', '후속'), /검색어 일치 없음/);
 });

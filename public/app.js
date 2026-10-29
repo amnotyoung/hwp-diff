@@ -1,4 +1,5 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary } from './report.js';
+import { markSearch } from './search.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -9,6 +10,13 @@ let previewLocations = { old: [], new: [] }, previewData = { old: null, new: nul
 let selectedMemoId = null, memoScroll = 0, memoEntryId = null;
 let previewOpened = false;
 const previewScrolls = new Map();
+let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
+const queryText = () => $('#search').value.trim();
+const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
+const compactScreen = matchMedia('(max-width: 560px)');
+function applyCompactScreen() { $('#filter-panel').open = !compactScreen.matches; }
+compactScreen.addEventListener('change', applyCompactScreen); applyCompactScreen();
+document.body.classList.add('preview-side-new');
 const activeFocusId = () => selectedMemoId ?? selectedId;
 function updateFiles() {
   for (const side of ['old', 'new']) {
@@ -26,6 +34,7 @@ function clearResults() {
   contentPositionSaved = false;
   selectedMemoId = null; memoScroll = 0; memoEntryId = null;
   previewOpened = false; previewScrolls.clear();
+  contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-canvas`).hidden = true; $(`#${side}-overlays`).replaceChildren(); }
@@ -65,6 +74,7 @@ function setBusy(busy, preview = false) {
   $('.upload-panel').setAttribute('aria-busy', String(busy));
   updateFiles();
   if (!busy) { updatePageButtons(); if (result) updateNavigator(); }
+  updateSearchControls();
 }
 async function compare(demo = false) {
   if (controller) return;
@@ -133,8 +143,10 @@ function renderList() {
   const priorSelection = selectedId; updateNavigator();
   if (!$('#preview-panel').hidden) {
     showSelectedDetail(); for (const side of ['old', 'new']) drawOverlays(side);
-    if (!selectedMemoId && selectedId && priorSelection !== selectedId) jumpToDiff(selectedId);
+    // Filtering must never navigate away from, or reposition, the current preview.
   }
+  contentHits = markSearch($('#diff-list'), queryText()).hits;
+  if ($('#preview-panel').hidden) { searchIndex = contentHits.length ? 0 : -1; updateSearchControls(); }
 }
 
 function updateNavigator() {
@@ -179,7 +191,7 @@ $('#edit-files').addEventListener('click', () => {
   if (expanded) $('.upload-panel').scrollIntoView({ block: 'start' });
 });
 $('#filters').addEventListener('click', event => { const button = event.target.closest('[data-filter]'); if (button) { filter = button.dataset.filter; shown = 50; renderList(); } });
-$('#search').addEventListener('input', () => { shown = 50; renderList(); });
+$('#search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 220); });
 $('#load-more').addEventListener('click', () => { shown += 50; renderList(); });
 function download(contents, type, extension) {
   const url = URL.createObjectURL(new Blob([contents], { type }));
@@ -192,7 +204,7 @@ $('#export-json').addEventListener('click', () => { if (result) download(JSON.st
 function setView(preview) {
   const memoView = preview === 'memos'; preview = preview === true;
   const wasPreview = !$('#preview-panel').hidden;
-  if (wasPreview && !preview) for (const side of ['old', 'new']) savePreviewScroll(side);
+  if (wasPreview && !preview) { previewWindowScroll = window.scrollY; for (const side of ['old', 'new']) savePreviewScroll(side); }
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
   $('#content-panel').hidden = preview || memoView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView;
   const memoOnlyPreview = preview && result && !result.diffs.some(d => d.type !== 'unchanged');
@@ -208,10 +220,11 @@ function setView(preview) {
     if (memoEntryId === selectedMemoId) window.scrollTo({ top: memoScroll });
     else $(`#${selectedMemoId}`)?.scrollIntoView({ block: 'start' });
   });
+  updateSearchControls();
 }
 function updatePageButtons() {
   for (const side of ['old', 'new']) {
-    const cached = previewCache.get(`${side}:${previewPages[side]}`);
+    const cached = previewCache.get(previewKey(side, previewPages[side]));
     $(`#${side}-prev`).disabled = !cached || cached.page <= 1;
     $(`#${side}-next`).disabled = !cached || cached.page >= cached.totalPages;
   }
@@ -220,7 +233,7 @@ async function loadPreview(side, page, jump = false) {
   if (previewOpened) savePreviewScroll(side);
   const location = previewLocations[side].find(l => l.id === activeFocusId());
   if (jump && location?.boxes.length) page = location.boxes[0].page;
-  const key = `${side}:${page}`;
+  const key = previewKey(side, page);
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
   $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '문서 배치를 렌더링하고 있습니다…';
   $(`#${side}-preview-warnings`).textContent = '';
@@ -228,6 +241,7 @@ async function loadPreview(side, page, jump = false) {
     let data = previewCache.get(key);
     if (!data) {
       const form = new FormData(); form.append('page', String(page));
+      form.append('search', queryText());
       form.append('targets', JSON.stringify(previewTargets(result, side)));
       if (activeFocusId()) form.append('focusId', String(activeFocusId()));
       if (jump) form.append('jump', '1');
@@ -237,7 +251,7 @@ async function loadPreview(side, page, jump = false) {
       data = await response.json();
       if (!response.ok) throw new Error(data.error ?? '미리보기를 만들 수 없습니다.');
       if (previewCache.size >= 8) previewCache.delete(previewCache.keys().next().value);
-      previewCache.set(`${side}:${data.page}`, data);
+      previewCache.set(previewKey(side, data.page), data);
     }
     previewLocations[side] = data.locations ?? []; previewData[side] = data;
     previewPages[side] = data.page;
@@ -246,6 +260,7 @@ async function loadPreview(side, page, jump = false) {
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
     const focused = data.locations?.find(l => l.id === activeFocusId());
+    if (side === 'new' && !selectedMemoId) $('#preview-jump').textContent = focused?.navigationLabel ?? '변경 위치 보기';
     $(`#${side}-preview-warnings`).innerHTML = `${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
     drawOverlays(side);
     await img.decode().catch(() => {});
@@ -268,6 +283,8 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
     }
   } finally { controller = null; setBusy(false); }
   previewOpened = true;
+  previewHits = ['new', 'old'].flatMap(side => (previewData[side]?.searchQuery === queryText() ? previewData[side]?.searchMatches ?? [] : []).map(hit => ({ ...hit, side })));
+  updateSearchControls();
 }
 function jumpToDiff(id) {
   if (controller) return;
@@ -292,10 +309,13 @@ function jumpToMemo(id) {
 }
 $('#view-content').addEventListener('click', () => { selectedMemoId = null; setView(false); });
 $('#view-memos').addEventListener('click', () => setView('memos'));
-$('#view-preview').addEventListener('click', () => {
+$('#view-preview').addEventListener('click', async () => {
   if (previewOpened) {
     setView(true); showSelectedDetail();
-    for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); }
+    if (['old', 'new'].some(side => previewData[side]?.searchQuery !== queryText())) await showPreview();
+    else for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); }
+    requestAnimationFrame(() => window.scrollTo({ top: previewWindowScroll }));
+    updateSearchControls();
     return;
   }
   const firstMemo = result?.annotations?.diffs?.[0]?.id;
@@ -337,13 +357,19 @@ function drawOverlays(side) {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     for (const prop of ['x', 'y', 'width', 'height']) rect.setAttribute(prop, String(box[prop]));
     const isMemo = location.category === 'memo';
-    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
+    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${location.id === activeFocusId() ? ' selected-region' : ''}`);
     rect.setAttribute('data-change-id', String(location.id)); rect.setAttribute('tabindex', '0'); rect.setAttribute('role', 'button');
     rect.setAttribute('aria-label', isMemo ? `메모 ${String(location.id).slice(5)} 선택` : `${labels[location.type]} 항목 ${location.id} 선택`);
     const select = () => isMemo ? jumpToMemo(location.id) : jumpToDiff(location.id);
     rect.addEventListener('click', select);
     rect.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
     svg.append(rect);
+  }
+  const active = previewHits[searchIndex];
+  if (active?.side === side && active.page === data.page && queryText()) {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    for (const key of ['x', 'y', 'width', 'height']) rect.setAttribute(key, String(active[key]));
+    rect.setAttribute('class', 'search-region'); svg.append(rect);
   }
 }
 function scrollToRegion(side) {
@@ -352,6 +378,7 @@ function scrollToRegion(side) {
   if (!box) return;
   const scale = canvas.getBoundingClientRect().width / data.width;
   viewport.scrollTo({ top: Math.max(0, box.y * scale - 65), left: Math.max(0, box.x * scale - 35), behavior: 'instant' });
+  if (compactScreen.matches && document.body.classList.contains(`preview-side-${side}`) && $('#preview-zoom').value === 'fit') $(`#${side}-overlays .selected-region`)?.scrollIntoView({ block: 'center' });
 }
 function savePreviewScroll(side) {
   const viewport = $(`#${side}-viewport`);
@@ -361,3 +388,54 @@ function restorePreviewScroll(side) {
   const saved = previewScrolls.get(`${side}:${previewPages[side]}`) ?? { top: 0, left: 0 };
   $(`#${side}-viewport`).scrollTo(saved.left, saved.top);
 }
+
+function updateSearchControls() {
+  const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
+  const query = queryText();
+  $('#search-count').textContent = query ? hits.length ? `${searchIndex >= 0 ? searchIndex + 1 : '–'}/${hits.length}${preview ? ' 문단' : ' 일치'}` : '0건' : '';
+  $('#previous-match').disabled = !query || !hits.length || !!controller;
+  $('#next-match').disabled = !query || !hits.length || !!controller;
+}
+async function applySearch() {
+  if (!result) return;
+  if (controller) { searchTimer = setTimeout(applySearch, 120); return; }
+  const preview = !$('#preview-panel').hidden;
+  shown = 50; renderList(); searchIndex = -1;
+  if (preview) {
+    await showPreview({ ...previewPages }, queryText() ? '원본 전체에서 검색합니다.' : '', false);
+    if (queryText() && previewHits.length) {
+      const onPage = previewHits.findIndex(h => h.side === 'new' && h.page === previewPages.new);
+      await focusMatch(onPage < 0 ? 0 : onPage);
+    }
+  } else if (queryText() && contentHits.length) await focusMatch(0);
+  updateSearchControls();
+}
+async function focusMatch(index) {
+  if (controller) return;
+  const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
+  if (!hits.length) return;
+  searchIndex = (index + hits.length) % hits.length;
+  if (!preview) {
+    $('#diff-list').querySelectorAll('.current-search-hit').forEach(e => e.classList.remove('current-search-hit'));
+    const hit = hits[searchIndex]; hit.elements.forEach(e => e.classList.add('current-search-hit'));
+    hit.elements[0].scrollIntoView({ block: 'center' }); rememberContentPosition();
+  } else {
+    const hit = hits[searchIndex];
+    if (previewPages[hit.side] !== hit.page) await showPreview({ [hit.side]: hit.page }, '원본 검색 결과', false);
+    setPreviewSide(hit.side);
+    for (const side of ['old', 'new']) drawOverlays(side);
+    const data = previewData[hit.side], canvas = $(`#${hit.side}-canvas`), viewport = $(`#${hit.side}-viewport`);
+    const scale = canvas.getBoundingClientRect().width / data.width;
+    viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
+    if (compactScreen.matches && $('#preview-zoom').value === 'fit') $(`#${hit.side}-overlays .search-region`)?.scrollIntoView({ block: 'center' });
+    $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
+  }
+  updateSearchControls();
+}
+$('#previous-match').addEventListener('click', () => focusMatch(searchIndex - 1));
+$('#next-match').addEventListener('click', () => focusMatch(searchIndex + 1));
+function setPreviewSide(side) {
+  document.body.classList.toggle('preview-side-old', side === 'old'); document.body.classList.toggle('preview-side-new', side === 'new');
+  document.querySelectorAll('[data-preview-side]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.previewSide === side)));
+}
+document.querySelectorAll('[data-preview-side]').forEach(b => b.addEventListener('click', () => setPreviewSide(b.dataset.previewSide)));

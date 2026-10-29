@@ -21,7 +21,7 @@ export async function previewDocument(file, page = 1, options = {}) {
   return {
     page, totalPages: scene.pages.length, format: scene.format,
     width: scene.pages.find(p => p.page === page)?.width, height: scene.pages.find(p => p.page === page)?.height,
-    locations, searchMatches,
+    locations, searchMatches, searchQuery: options.search ?? '',
     // SVG is displayed in an <img>, never inserted as active document markup.
     image: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     warnings: friendlyWarnings(scene.warnings), technicalWarnings: scene.warnings,

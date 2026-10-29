@@ -45,7 +45,7 @@ export function focusedText(before, after, side, query = '') {
   const text = side === 'before' ? before : after;
   const ranges = query ? findOccurrences(text, query)
     : textChanges(before, after).map(c => [c[`${side}Start`], c[`${side}End`]]);
-  if (!ranges.length) return highlight(before, after)[side] || '(빈 셀)';
+  if (!ranges.length) return query ? '<span class="empty-block">검색어 일치 없음</span>' : highlight(before, after)[side] || '(빈 셀)';
   const windows = [];
   for (const [a, b] of ranges) {
     const start = Math.max(0, a - 48), end = Math.min(text.length, b + 48), last = windows.at(-1);
@@ -71,11 +71,15 @@ export function blockText(block) {
     ...(block.table?.captionBlocks ?? []).map(blockText)].filter(Boolean).join('\n');
 }
 
-export function renderBlock(block, other, side) {
+export function renderBlock(block, other, side, focus = false, query = '') {
   if (!block) return '<p class="empty-block">해당 내용 없음</p>';
   if (block.type === 'image') return '<p class="empty-block">그림 · 비교 대상에서 제외</p>';
   let html = '';
-  if (block.text) html += `<div class="block-text">${highlight(side === 'before' ? block.text : other?.text ?? '', side === 'after' ? block.text : other?.text ?? '')[side]}</div>`;
+  if (block.text) {
+    const before = side === 'before' ? block.text : other?.text ?? '', after = side === 'after' ? block.text : other?.text ?? '';
+    html += `<div class="block-text">${focus ? focusedText(before, after, side, query) : highlight(before, after)[side]}</div>`;
+    if (focus && block.text.length > 160) html += `<details class="cell-context"><summary>문단 전체 내용 보기</summary><div class="context-text">${highlight(before, after)[side]}</div></details>`;
+  }
   if (block.table) {
     const t = block.table;
     const changedShape = other?.table && (t.rows !== other.table.rows || t.cols !== other.table.cols);
@@ -130,8 +134,8 @@ export function renderChangedCells(diff, query = '') {
 }
 
 export function renderDiff(diff, documents, navigation = false, query = '') {
-  const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before')}</section>
-    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after')}</section></div>`;
+  const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before', navigation && !diff.before?.table, query)}</section>
+    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after', navigation && !diff.after?.table, query)}</section></div>`;
   const compact = (diff.type === 'modified' && diff.cells.length > 0) || (query && (diff.before?.table || diff.after?.table));
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>

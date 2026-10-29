@@ -13,6 +13,7 @@ const assets = new Map([
   ['/launch-guard.js', ['launch-guard.js', 'text/javascript; charset=utf-8']],
   ['/report.js', ['report.js', 'text/javascript; charset=utf-8']],
   ['/text-diff.js', ['text-diff.js', 'text/javascript; charset=utf-8']],
+  ['/search.js', ['search.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
