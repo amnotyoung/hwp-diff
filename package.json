@@ -1,0 +1,14 @@
+{
+  "name": "hwp-diff",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "폐쇄망용 HWP·HWPX 문서 신구대조 프로그램",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "samples": "node scripts/create-samples.mjs"
+  },
+  "dependencies": { "kordoc": "4.24.18" }
+}
