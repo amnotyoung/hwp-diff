@@ -37,11 +37,11 @@
       <section id="results" hidden aria-label="비교 결과">
         <header class="workbench-header">
           <a class="workbench-brand" href="/">한컴 diff</a>
-          <div class="file-summary"><span id="old-summary" aria-label="구버전"></span><span class="summary-arrow">→</span><span id="new-summary" aria-label="신버전"></span></div>
+          <details id="file-info-menu" class="workbench-popover"><summary aria-label="비교 파일 정보"><span class="compact-file-label">비교 파일</span><span class="file-summary"><span id="old-summary" aria-label="구버전"></span><span class="summary-arrow">→</span><span id="new-summary" aria-label="신버전"></span></span></summary><div class="popover-body file-info-body"><div id="menu-file-info"></div></div></details>
           <span id="result-title" class="result-state" role="status"></span>
           <button id="export-html" class="button primary" aria-label="신구대조표 저장 (.html)">저장<span class="export-extension"> (.html)</span></button>
           <details id="notice-menu" class="workbench-popover"><summary id="notice-label">안내</summary><div class="popover-body notice-body"><div id="critical-notices"></div><details class="result-summary"><summary>비교 요약 · 제외/주의사항</summary><div id="stats" class="stats"></div><div id="warnings"></div></details><details class="scope-note"><summary>비교 범위와 읽기 유의사항</summary><ul id="limitations"></ul></details></div></details>
-          <details id="workbench-menu" class="workbench-popover"><summary aria-label="더보기">⋯</summary><div class="popover-body menu-body"><div id="menu-file-info"></div><button id="swap-result" class="button secondary" aria-label="구버전과 신버전을 교체하고 다시 비교">순서 교체 ↔</button><button id="edit-files" class="button secondary" aria-expanded="false">파일 다시 선택</button><button id="export-json" class="button secondary">비교 데이터 저장 (.json)</button></div></details>
+          <details id="workbench-menu" class="workbench-popover"><summary aria-label="더보기">⋯</summary><div class="popover-body menu-body"><button id="swap-result" class="button secondary" aria-label="구버전과 신버전을 교체하고 다시 비교">순서 교체 ↔</button><button id="edit-files" class="button secondary" aria-expanded="false">파일 다시 선택</button><button id="export-json" class="button secondary">비교 데이터 저장 (.json)</button></div></details>
         </header>
         <div class="result-tools">
           <div class="view-tabs" role="group" aria-label="결과 보기 방식"><button id="view-content" class="selected" aria-pressed="true">내용 비교</button><button id="view-memos" aria-pressed="false">메모</button><button id="view-formats" aria-pressed="false">서식</button><button id="view-preview" aria-pressed="false">원본 미리보기</button></div>

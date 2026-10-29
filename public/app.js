@@ -47,7 +47,7 @@ function clearResults() {
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   $('#selection-panel').hidden = true; $('#toggle-details').setAttribute('aria-expanded', 'false');
-  $('#workbench-menu').open = false; $('#notice-menu').open = false;
+  $('#workbench-menu').open = false; $('#notice-menu').open = false; $('#file-info-menu').open = false;
   document.querySelectorAll('.document-info').forEach(el => { el.open = false; });
   $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
   $('#preview-zoom').value = 'page';
@@ -299,7 +299,10 @@ function updateToolbar() {
   const preview = !$('#preview-panel').hidden;
   const content = $('#memo-panel').hidden && $('#format-panel').hidden && (!preview || !selectedMemoId && !selectedFormatId);
   document.querySelectorAll('[data-filter], #search, #toggle-search').forEach(el => { el.disabled = !!controller || !content; });
-  if (!content) { $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false'); }
+  if (!content) {
+    $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
+    clearSearch();
+  }
   $('#preview-zoom').disabled = !preview;
   $('#toggle-details').disabled = !preview;
 }
@@ -538,8 +541,9 @@ function updateSearchControls() {
   const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
   const query = queryText();
   const total = filteredDiffs().length, loaded = Math.min(shown, total);
-  $('#search-count').textContent = query ? preview ? hits.length ? `${searchIndex >= 0 ? searchIndex + 1 : '–'}/${hits.length} 문단` : '0건'
-    : `표시 ${loaded}/${total}개 항목 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}${hits.length >= 1000 ? '(최대)' : ''}곳` : '';
+  $('#search-count').textContent = query ? preview
+    ? `원본 전체에서 ${hits.length}개 문단 일치 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
+    : `현재 표시된 ${loaded}개 항목에서 ${hits.length >= 1000 ? '최대 ' : ''}${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length} (검색 결과 ${total}개 항목 중 ${loaded}개 표시)` : '';
   $('#search-count').title = preview ? '원본 전체 문서 기준' : '현재 화면에 표시한 항목의 일치 수입니다. 다음 50개 보기를 누르면 검색 범위가 늘어납니다.';
   $('#previous-match').disabled = !query || !hits.length || !!controller;
   $('#next-match').disabled = !query || !hits.length || !!controller;
@@ -617,7 +621,19 @@ $('#expand-explanation').addEventListener('click', () => setDetails(true));
 $('#close-details').addEventListener('click', () => setDetails(false));
 function setSearch(open) {
   $('#search-panel').hidden = !open; $('#toggle-search').setAttribute('aria-expanded', String(open));
-  if (open) $('#search').focus(); else $('#toggle-search').focus();
+  if (open) $('#search').focus();
+  else { clearSearch(); $('#toggle-search').focus(); }
+}
+function clearSearch() {
+  if (!$('#search').value) return;
+  clearTimeout(searchTimer);
+  $('#search').value = ''; searchIndex = -1; previewHits = [];
+  // Restore content immediately even if an in-flight preview must finish first.
+  shown = 50; renderList();
+  for (const side of ['old', 'new']) drawOverlays(side);
+  updateSearchControls();
+  // Defer refresh: this may run while a memo/format jump is entering preview.
+  if (!$('#preview-panel').hidden) searchTimer = setTimeout(applySearch, 0);
 }
 $('#toggle-search').addEventListener('click', () => setSearch($('#search-panel').hidden));
 $('#close-search').addEventListener('click', () => setSearch(false));
@@ -625,5 +641,5 @@ window.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (!$('#search-panel').hidden) setSearch(false);
   else if (!$('#selection-panel').hidden) setDetails(false);
-  $('#workbench-menu').open = false; $('#notice-menu').open = false;
+  $('#workbench-menu').open = false; $('#notice-menu').open = false; $('#file-info-menu').open = false;
 });

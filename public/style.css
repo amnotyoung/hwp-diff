@@ -506,6 +506,19 @@ details[open] > summary::before { content: '−'; }
   .file-summary .file-name-end { max-width:100%; }
 }
 .workbench-header>#export-html { margin-left:auto; }
+#file-info-menu { flex:1; min-width:0; max-width:560px; }
+#file-info-menu>summary { padding:0; justify-content:flex-start; }
+#file-info-menu>summary:hover { background:var(--blue-tint); }
+#file-info-menu .file-summary { max-width:none; }
+.compact-file-label { display:none; }
+.file-info-body { left:0; right:auto; width:480px; max-width:calc(100vw - 32px); }
+.file-info-body #menu-file-info { border:0; }
+.file-info-body #menu-file-info p:last-child { margin-bottom:0; }
+@media(max-width:900px) {
+  #file-info-menu { flex:0 0 auto; }
+  #file-info-menu>summary { padding:8px; border-color:var(--line); }
+  .compact-file-label { display:inline; }
+}
 
 /* Keep controls in the same slots across all four result views. */
 html { scrollbar-gutter:stable; }
