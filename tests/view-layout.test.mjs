@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { canvasWidth } from '../public/view-layout.js';
+import { fileLabel } from '../public/report.js';
+
+test('page fit preserves the complete portrait or landscape sheet within both available dimensions', () => {
+  for (const page of [{ width: 595.28, height: 841.88 }, { width: 841.88, height: 595.28 }, { width: 420, height: 1000 }]) {
+    for (const [width, height] of [[600, 540], [350, 600], [900, 320]]) {
+      const fitted = canvasWidth(page, width, height, 'page');
+      assert.ok(fitted > 0 && fitted <= width);
+      assert.ok(fitted * page.height / page.width <= height);
+    }
+  }
+});
+test('width-fit and zoom retain their separate meaning across paper sizes', () => {
+  const page = { width: 720, height: 1000 };
+  assert.equal(canvasWidth(page, 480, 400, 'fit'), 480);
+  assert.equal(canvasWidth(page, 480, 400, '100'), 960);
+  assert.equal(canvasWidth(page, 480, 400, '150'), 1440);
+});
+test('hidden or invalid viewports are not assigned bogus page sizes', () => {
+  assert.equal(canvasWidth({ width: 595, height: 842 }, 0, 400, 'page'), null);
+  assert.equal(canvasWidth({ width: 0, height: 842 }, 400, 400, 'page'), null);
+  assert.equal(canvasWidth({ width: 595, height: 842 }, 400, 400, 'unknown'), null);
+});
+
+test('long Korean file names preserve their suffix without splitting decomposed syllables', () => {
+  const name = ('긴문서제목'.repeat(12) + '_1007_1600.hwp').normalize('NFD');
+  const html = fileLabel(name);
+  assert.ok(html.includes('_1007_1600.hwp'));
+  assert.match(html, /class="file-name-start">긴문서제목/);
+  assert.ok(html.includes('class="file-name-end"'));
+});

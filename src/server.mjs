@@ -14,6 +14,7 @@ const assets = new Map([
   ['/report.js', ['report.js', 'text/javascript; charset=utf-8']],
   ['/text-diff.js', ['text-diff.js', 'text/javascript; charset=utf-8']],
   ['/search.js', ['search.js', 'text/javascript; charset=utf-8']],
+  ['/view-layout.js', ['view-layout.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 

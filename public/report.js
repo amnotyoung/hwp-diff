@@ -5,10 +5,10 @@ export function escapeHtml(value = '') {
 }
 
 export function fileLabel(name, limit = 42) {
-  const chars = Array.from(name);
-  const short = chars.length > limit ? `${chars.slice(0, limit - 24).join('')}…${chars.slice(-23).join('')}` : name;
+  const chars = Array.from(name.normalize('NFC'));
+  const short = chars.length > limit ? `<span class="file-name-start">${escapeHtml(chars.slice(0, limit - 18).join(''))}…</span><span class="file-name-end"><bdi>${escapeHtml(chars.slice(-17).join(''))}</bdi></span>` : escapeHtml(name);
   const version = name.match(/v\d+(?:\.\d+)+(?:[-_][a-z0-9]+)?/i)?.[0];
-  return `<span class="file-name" title="${escapeHtml(name)}">${escapeHtml(short)}</span>${version ? `<span class="version-badge">${escapeHtml(version)}</span>` : ''}`;
+  return `<span class="file-name" title="${escapeHtml(name)}">${short}</span>${version ? `<span class="version-badge">${escapeHtml(version)}</span>` : ''}`;
 }
 
 export function previewTargets(result, side) {

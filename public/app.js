@@ -1,5 +1,6 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml } from './report.js';
 import { markSearch } from './search.js';
+import { canvasWidth } from './view-layout.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
@@ -16,7 +17,11 @@ let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWi
 const queryText = () => $('#search').value.trim();
 const previewKey = (side, page) => JSON.stringify([side, page, queryText()]);
 const compactScreen = matchMedia('(max-width: 560px)');
-function applyCompactScreen() { $('#filter-panel').open = !compactScreen.matches; }
+function applyCompactScreen() {
+  $('#filter-panel').open = !compactScreen.matches;
+  const destination = compactScreen.matches ? $('#workbench-menu .menu-body') : $('.result-tools');
+  destination.append($('#preview-actions'));
+}
 compactScreen.addEventListener('change', applyCompactScreen); applyCompactScreen();
 document.body.classList.add('preview-side-new');
 const activeFocusId = () => selectedFormatId ?? selectedMemoId ?? selectedId;
@@ -41,6 +46,12 @@ function clearResults() {
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
+  $('#selection-panel').hidden = true; $('#toggle-details').setAttribute('aria-expanded', 'false');
+  $('#workbench-menu').open = false; $('#notice-menu').open = false;
+  document.querySelectorAll('.document-info').forEach(el => { el.open = false; });
+  $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
+  $('#preview-zoom').value = 'page';
+  for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = 'page';
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-canvas`).hidden = true; $(`#${side}-overlays`).replaceChildren(); }
   setView(false);
 }
@@ -101,7 +112,7 @@ async function compare(demo = false, reverse = false) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '비교하지 못했습니다.');
     result = data; isDemo = demo; demoReversed = reverse; filter = 'changes'; shown = 50; $('#search').value = '';
-    $('#status').textContent = demo ? '샘플 비교 결과입니다. 실제 문서를 선택해 새 비교를 시작할 수 있습니다.' : '비교가 완료되었습니다. 결과는 이 화면을 닫으면 삭제됩니다. 필요한 경우 신구대조표를 저장하세요.';
+    $('#status').textContent = '';
     showResults();
   } catch (error) {
     $('#status').textContent = error.name === 'AbortError' ? '비교를 취소했습니다.' : '';
@@ -124,6 +135,9 @@ function showResults() {
   if (formatCount) $('#result-title').textContent = `내용 변경 ${total}개 · 서식 변경 ${formatCount}곳${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (changed.length === 1 && !memoChanges && !formatCount) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
   if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 ${formatCount}곳` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
+  if (isDemo) $('#result-title').textContent += ' (샘플)';
+  $('#result-title').title = $('#result-title').textContent;
+  if (total > 1 && !formatCount && !memoChanges && !result.structureStats?.changed) $('#result-title').textContent = `변경 ${total}개${isDemo ? ' (샘플)' : ''}`;
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : '서식 확인 필요';
@@ -140,9 +154,11 @@ function showResults() {
   $('#critical-notices').replaceChildren();
   if (result.formatting?.available === false) $('#critical-notices').insertAdjacentHTML('beforeend', `<p class="${result.formatting.reason === 'unsupported-format' ? 'comparison-notice' : 'parse-warning'}" role="note">${escapeHtml(result.formatting.message)}</p>`);
   if (result.formatting?.incompleteRanges) $('#critical-notices').insertAdjacentHTML('beforeend', '<p class="parse-warning">일부 문구의 서식 대응을 확인하지 못했습니다. 서식 탭에서 확인해 주세요.</p>');
+  $('#notice-label').textContent = result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : result.warnings.length || result.formatting?.incompleteRanges ? '주의사항' : '안내';
+  $('#menu-file-info').innerHTML = `<p><strong>구버전</strong><br>${escapeHtml(result.documents.before.name)}</p><p><strong>신버전</strong><br>${escapeHtml(result.documents.after.name)}</p>`;
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
   for (const [side, key] of [['old', 'before'], ['new', 'after']]) {
-    for (const suffix of ['column', 'preview-name', 'summary']) $(`#${side}-${suffix}`).innerHTML = `<span>${side === 'old' ? '구버전' : '신버전'} · </span>${fileLabel(result.documents[key].name)}`;
+    for (const suffix of ['column', 'preview-name', 'summary']) $(`#${side}-${suffix}`).innerHTML = `${suffix === 'summary' ? '' : `<span>${side === 'old' ? '구버전' : '신버전'} · </span>`}${fileLabel(result.documents[key].name)}`;
   }
   renderList();
   if (!total && memoChanges) setView('memos');
@@ -176,9 +192,10 @@ function updateNavigator() {
   const changes = filteredDiffs().filter(d => d.type !== 'unchanged');
   if (!changes.some(d => d.id === selectedId)) selectedId = changes[0]?.id ?? null;
   const position = changes.findIndex(d => d.id === selectedId);
-  $('#change-list').innerHTML = changes.map(d => `<option value="${d.id}">${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 65))}</option>`).join('') || '<option>해당 변경 없음</option>';
+  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${d.id}">${i + 1} / ${changes.length} · ${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 65))}</option>`).join('') || '<option>0 / 0</option>';
   $('#change-list').value = selectedId ?? '';
   $('#change-position').textContent = changes.length ? `${position + 1} / ${changes.length}개 변경` : '해당 변경 없음';
+  $('#change-list').title = changes[position] ? `${labels[changes[position].type]} · 항목 ${changes[position].id} · ${blockText(changes[position].after ?? changes[position].before).slice(0, 150)}` : '해당 변경 없음';
   $('#previous-change').disabled = position <= 0;
   $('#next-change').disabled = position < 0 || position >= changes.length - 1;
   document.querySelectorAll('[data-diff-id]').forEach(el => el.classList.toggle('selected-change', Number(el.dataset.diffId) === selectedId));
@@ -210,6 +227,8 @@ for (const [button, delta] of [['previous-change', -1], ['next-change', 1]]) $(`
   if (next) selectChange(next.id);
 });
 $('#edit-files').addEventListener('click', () => {
+  $('#workbench-menu').open = false;
+  if (!$('#preview-panel').hidden) setView(false);
   const expanded = document.body.classList.toggle('edit-files');
   $('#edit-files').setAttribute('aria-expanded', String(expanded));
   if (expanded) $('.upload-panel').scrollIntoView({ block: 'start' });
@@ -230,9 +249,12 @@ function setView(preview) {
   const wasPreview = !$('#preview-panel').hidden;
   if (wasPreview && !preview) { previewWindowScroll = window.scrollY; for (const side of ['old', 'new']) savePreviewScroll(side); }
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
+  document.body.classList.toggle('preview-mode', preview);
+  $('#preview-actions').hidden = !preview;
   $('#content-panel').hidden = preview || memoView || formatView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView; $('#format-panel').hidden = !formatView;
-  const memoOnlyPreview = preview && result && !result.diffs.some(d => d.type !== 'unchanged');
-  $('.results-toolbar').hidden = memoView || formatView || memoOnlyPreview; $('.change-navigator').hidden = memoView || formatView || memoOnlyPreview;
+  const memoOnlyPreview = preview && result && (!result.diffs.some(d => d.type !== 'unchanged') || selectedMemoId || selectedFormatId);
+  $('.results-toolbar').hidden = memoView || formatView;
+  $('.change-navigator').hidden = memoView || formatView || memoOnlyPreview;
   for (const [id, active] of [['view-content', !preview && !memoView && !formatView], ['view-preview', preview], ['view-memos', memoView], ['view-formats', formatView]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
@@ -249,6 +271,7 @@ function setView(preview) {
     else $(`#${selectedFormatId}`)?.scrollIntoView({ block: 'start' });
   });
   updateSearchControls();
+  if (preview) { window.scrollTo({ top: 0, behavior: 'instant' }); requestAnimationFrame(fitPreviewPages); }
 }
 function updatePageButtons() {
   for (const side of ['old', 'new']) {
@@ -293,6 +316,7 @@ async function loadPreview(side, page, jump = false) {
     $(`#${side}-preview-warnings`).innerHTML = `${focused ? `<p>${escapeHtml(focused.message)}</p>` : ''}${data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('')}${data.technicalWarnings?.length ? `<details><summary>기술 정보</summary><p>${data.technicalWarnings.map(escapeHtml).join('<br>')}</p></details>` : ''}`;
     drawOverlays(side);
     await img.decode().catch(() => {});
+    fitPreviewPages();
     if (jump) scrollToRegion(side);
     else restorePreviewScroll(side);
     updateVisibleSelection();
@@ -304,7 +328,6 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
   if (!result || controller) return;
   setView(true); controller = new AbortController(); setBusy(true, true);
   showSelectedDetail();
-  $('.preview-toolbar').scrollIntoView({ block: 'start' });
   $('#preview-status').textContent = note || '색칠된 영역은 변경된 문단·셀입니다. 선택한 변경은 진한 테두리로 표시합니다.';
   try {
     for (const [side, page] of Object.entries(pages)) {
@@ -358,7 +381,7 @@ $('#view-preview').addEventListener('click', async () => {
     }
     setView(true); showSelectedDetail();
     if (['old', 'new'].some(side => previewData[side]?.searchQuery !== queryText())) await showPreview();
-    else for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); }
+    else { fitPreviewPages(); for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); } }
     requestAnimationFrame(() => window.scrollTo({ top: previewWindowScroll }));
     updateSearchControls();
     return;
@@ -378,7 +401,7 @@ $('#preview-format').addEventListener('change', event => jumpToFormat(event.targ
 $('#return-formats').addEventListener('click', () => setView('formats'));
 $('#preview-jump').addEventListener('click', () => selectedFormatId ? jumpToFormat(selectedFormatId) : selectedMemoId ? jumpToMemo(selectedMemoId) : jumpToDiff(selectedId));
 $('#diff-list').addEventListener('click', event => { const button = event.target.closest('[data-preview-diff]'); if (button) jumpToDiff(button.dataset.previewDiff); });
-$('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; });
+$('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; fitPreviewPages(); });
 for (const side of ['old', 'new']) {
   const input = $(`#${side}-page`);
   const go = () => {
@@ -418,16 +441,21 @@ function showSelectedDetail() {
 function updateVisibleSelection() {
   if (!result) return;
   const id = activeFocusId();
-  if (!id) { $('#preview-selection-status').textContent = '선택 항목 없음'; return; }
+  if (!id) { $('#preview-selection-status').textContent = '선택 항목 없음'; for (const side of ['old', 'new']) $(`#${side}-position-note`).hidden = true; return; }
   const label = selectedMemoId ? `메모 ${String(id).slice(5)}` : selectedFormatId ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
   const statuses = ['old', 'new'].map(side => {
     const location = previewData[side]?.locations.find(l => l.id === id), pages = [...new Set(location?.boxes.map(b => b.page) ?? [])];
+    const note = $(`#${side}-position-note`), onPage = pages.includes(previewPages[side]);
+    note.hidden = onPage;
+    note.disabled = !pages.length;
+    note.textContent = pages.length ? `선택 항목: 렌더링 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '선택 항목 위치 미확인';
     const prefix = side === 'old' ? '구버전' : '신버전';
     if (pages.includes(previewPages[side])) return `${prefix}: 현재 렌더링 ${previewPages[side]}쪽에 표시`;
     if (pages.length) return `${prefix}: 렌더링 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
     return `${prefix}: ${location?.status === 'absent' ? '해당 항목 없음' : '위치 미확인'}`;
   });
   $('#preview-selection-status').textContent = `${label} — ${statuses.join(' / ')}`;
+  $('#toggle-details').title = label;
 }
 function drawOverlays(side) {
   const data = previewData[side], svg = $(`#${side}-overlays`);
@@ -455,6 +483,7 @@ function drawOverlays(side) {
   }
 }
 function scrollToRegion(side) {
+  if ($('#preview-zoom').value === 'page') { $(`#${side}-viewport`).scrollTo(0, 0); return; }
   const data = previewData[side], viewport = $(`#${side}-viewport`), canvas = $(`#${side}-canvas`);
   const box = data?.locations.find(l => l.id === activeFocusId())?.boxes.find(b => b.page === data.page);
   if (!box) return;
@@ -467,6 +496,7 @@ function savePreviewScroll(side) {
   if (!$('#preview-panel').hidden && !$(`#${side}-canvas`).hidden) previewScrolls.set(`${side}:${previewPages[side]}`, { top: viewport.scrollTop, left: viewport.scrollLeft });
 }
 function restorePreviewScroll(side) {
+  if ($('#preview-zoom').value === 'page') { $(`#${side}-viewport`).scrollTo(0, 0); return; }
   const saved = previewScrolls.get(`${side}:${previewPages[side]}`) ?? { top: 0, left: 0 };
   $(`#${side}-viewport`).scrollTo(saved.left, saved.top);
 }
@@ -480,6 +510,8 @@ function updateSearchControls() {
   $('#search-count').title = preview ? '원본 전체 문서 기준' : '현재 화면에 표시한 항목의 일치 수입니다. 다음 50개 보기를 누르면 검색 범위가 늘어납니다.';
   $('#previous-match').disabled = !query || !hits.length || !!controller;
   $('#next-match').disabled = !query || !hits.length || !!controller;
+  $('#toggle-search').classList.toggle('has-query', !!query);
+  $('#toggle-search').title = query ? `검색: ${query}` : '검색';
 }
 async function applySearch() {
   if (!result) return;
@@ -511,7 +543,7 @@ async function focusMatch(index) {
     for (const side of ['old', 'new']) drawOverlays(side);
     const data = previewData[hit.side], canvas = $(`#${hit.side}-canvas`), viewport = $(`#${hit.side}-viewport`);
     const scale = canvas.getBoundingClientRect().width / data.width;
-    viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
+    if ($('#preview-zoom').value !== 'page') viewport.scrollTo({ top: Math.max(0, hit.y * scale - 60), left: Math.max(0, hit.x * scale - 30) });
     if (compactScreen.matches && $('#preview-zoom').value === 'fit') $(`#${hit.side}-overlays .search-region`)?.scrollIntoView({ block: 'center' });
     $('#preview-status').textContent = `${hit.side === 'new' ? '신버전' : '구버전'} 렌더링 ${hit.page}쪽 · ${hit.text.slice(0, 100)}`;
   }
@@ -522,5 +554,42 @@ $('#next-match').addEventListener('click', () => focusMatch(searchIndex + 1));
 function setPreviewSide(side) {
   document.body.classList.toggle('preview-side-old', side === 'old'); document.body.classList.toggle('preview-side-new', side === 'new');
   document.querySelectorAll('[data-preview-side]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.previewSide === side)));
+  requestAnimationFrame(fitPreviewPages);
 }
 document.querySelectorAll('[data-preview-side]').forEach(b => b.addEventListener('click', () => setPreviewSide(b.dataset.previewSide)));
+
+function fitPreviewPages() {
+  if ($('#preview-panel').hidden) return;
+  for (const side of ['old', 'new']) {
+    const data = previewData[side], viewport = $(`#${side}-viewport`), canvas = $(`#${side}-canvas`);
+    if (!data || !viewport.clientWidth || !viewport.clientHeight) continue;
+    const style = getComputedStyle(viewport);
+    const width = canvasWidth(data, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), $('#preview-zoom').value);
+    if (width !== null) canvas.style.setProperty('--canvas-width', `${width}px`);
+    if ($('#preview-zoom').value === 'page') viewport.scrollTo(0, 0);
+  }
+}
+const previewResize = new ResizeObserver(() => fitPreviewPages());
+for (const side of ['old', 'new']) {
+  previewResize.observe($(`#${side}-viewport`));
+  $(`#${side}-position-note`).addEventListener('click', () => showPreview({ [side]: previewPages[side] }, '', true));
+}
+function setDetails(open) {
+  $('#selection-panel').hidden = !open; $('#toggle-details').setAttribute('aria-expanded', String(open));
+  if (open) { $('#workbench-menu').open = false; showSelectedDetail(); $('#close-details').focus(); }
+  else (compactScreen.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
+}
+$('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
+$('#close-details').addEventListener('click', () => setDetails(false));
+function setSearch(open) {
+  $('#search-panel').hidden = !open; $('#toggle-search').setAttribute('aria-expanded', String(open));
+  if (open) $('#search').focus(); else $('#toggle-search').focus();
+}
+$('#toggle-search').addEventListener('click', () => setSearch($('#search-panel').hidden));
+$('#close-search').addEventListener('click', () => setSearch(false));
+window.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (!$('#search-panel').hidden) setSearch(false);
+  else if (!$('#selection-panel').hidden) setDetails(false);
+  $('#workbench-menu').open = false; $('#notice-menu').open = false;
+});
