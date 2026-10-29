@@ -3,6 +3,13 @@ export function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+export function fileLabel(name, limit = 42) {
+  const chars = Array.from(name);
+  const short = chars.length > limit ? `${chars.slice(0, limit - 24).join('')}…${chars.slice(-23).join('')}` : name;
+  const version = name.match(/v\d+(?:\.\d+)+(?:[-_][a-z0-9]+)?/i)?.[0];
+  return `<span class="file-name" title="${escapeHtml(name)}">${escapeHtml(short)}</span>${version ? `<span class="version-badge">${escapeHtml(version)}</span>` : ''}`;
+}
+
 // Exact character diff for the changed region; bound quadratic work for long paragraphs.
 export function highlight(before = '', after = '') {
   const a = Array.from(before), b = Array.from(after);
@@ -78,11 +85,24 @@ function location(index, page, document) {
   return `${index}번 블록${page ? ` · ${document?.pageMode === 'layout' ? page + '쪽' : '섹션 근사 ' + page}` : ''}`;
 }
 
+export function renderChangedCells(diff) {
+  return `<div class="changed-cells">${diff.cells.map(cell => {
+    const header = diff.after?.table?.cells[0]?.[cell.col - 1]?.text || diff.before?.table?.cells[0]?.[cell.col - 1]?.text;
+    return `<section class="cell-change"><p class="cell-address">${cell.row}행 ${cell.col}열${header ? ` · ${escapeHtml(header.slice(0, 70))}` : ''}</p><div class="diff-columns">${['before', 'after'].map(side => {
+      const value = cell[side], other = cell[side === 'before' ? 'after' : 'before'];
+      return `<section class="${side}"><span class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</span><div class="cell-value ${side === 'before' ? 'cell-before' : 'cell-after'}">${value ? highlight(cell.before?.text ?? '', cell.after?.text ?? '')[side] || '(빈 셀)' : '해당 셀 없음'}</div>${value && other && (value.rowSpan !== other.rowSpan || value.colSpan !== other.colSpan) ? `<small>병합: ${value.rowSpan}행 × ${value.colSpan}열</small>` : ''}</section>`;
+    }).join('')}</div></section>`;
+  }).join('')}</div>`;
+}
+
 export function renderDiff(diff, documents, navigation = false) {
-  return `<article class="diff-card ${diff.type}" id="change-${diff.id}">
+  const columns = `<div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before')}</section>
+    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after')}</section></div>`;
+  const compact = diff.type === 'modified' && diff.cells.length > 0;
+  return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
     <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
-    <div class="diff-columns"><section class="before"><p class="location"><span class="side-label">구버전 · </span>${location(diff.oldIndex, diff.oldPage, documents.before)}</p>${renderBlock(diff.before, diff.after, 'before')}</section>
-    <section class="after"><p class="location"><span class="side-label">신버전 · </span>${location(diff.newIndex, diff.newPage, documents.after)}</p>${renderBlock(diff.after, diff.before, 'after')}</section></div>
+    ${compact ? renderChangedCells(diff) : ''}
+    ${compact || diff.type === 'unchanged' ? `<details class="full-context"><summary>${compact ? '전체 표 펼치기 · 동일한 셀 포함' : '동일한 내용 펼치기'}</summary>${columns}</details>` : columns}
   </article>`;
 }
 

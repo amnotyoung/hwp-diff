@@ -154,3 +154,14 @@ test('added and removed images are unsupported, including images inside cells', 
   assert.equal(r.stats.modified, 0); assert.equal(r.diffs[0].cells.length, 0);
   assert.equal(r.unsupported.after.length, 1);
 });
+
+test('long tables default to changed cells and keep complete context collapsed', () => {
+  const a = table(Array.from({ length: 100 }, (_, i) => [`행 ${i}`, '500']));
+  const b = structuredClone(a); b.table.cells[90][1].text = '600';
+  const r = compareBlocks([a], [b]);
+  const html = renderDiff(r.diffs[0], { before: {}, after: {} });
+  const compact = html.split('<details')[0];
+  assert.match(compact, /91행 2열/); assert.ok(!compact.includes('행 50'));
+  assert.match(html, /<details class="full-context">/); assert.ok(!html.includes('<details open'));
+  assert.ok(html.includes('행 50'));
+});

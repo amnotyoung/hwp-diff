@@ -1,12 +1,13 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel } from './report.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
 let isDemo = false, previewPages = { old: 1, new: 1 }, previewCache = new Map();
+let selectedId = null, contentScroll = 0;
 function updateFiles() {
   for (const side of ['old', 'new']) {
     const file = files[side];
-    $(`#${side}-name`).textContent = file?.name ?? (side === 'old' ? '기준이 되는 문서를 선택하세요' : '수정된 문서를 선택하세요');
+    $(`#${side}-name`).innerHTML = file ? fileLabel(file.name) : (side === 'old' ? '기준이 되는 문서를 선택하세요' : '수정된 문서를 선택하세요');
     $(`#${side}-hint`).textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · 클릭하여 다른 파일 선택` : '클릭하거나 파일을 여기에 놓으세요';
     $(`#${side}-zone`).classList.toggle('has-file', !!file);
   }
@@ -15,6 +16,7 @@ function updateFiles() {
 function showError(message = '') { $('#error').textContent = message; $('#error').hidden = !message; }
 function clearResults() {
   result = null; previewCache.clear(); previewPages = { old: 1, new: 1 };
+  selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files');
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   for (const side of ['old', 'new']) { $(`#${side}-preview`).removeAttribute('src'); $(`#${side}-preview`).hidden = true; }
   setView(false);
@@ -76,29 +78,66 @@ $('#demo').addEventListener('click', () => compare(true));
 $('#cancel').addEventListener('click', () => controller?.abort());
 
 function showResults() {
+  document.body.classList.add('has-results'); document.body.classList.remove('edit-files');
   $('#empty-state').hidden = true; $('#results').hidden = false;
   const total = result.stats.added + result.stats.removed + result.stats.modified;
   $('#result-title').textContent = total ? `${total}개 항목에서 변경을 찾았습니다` : '비교 대상 본문·표의 변경이 없습니다';
   $('#stats').innerHTML = Object.entries(labels).map(([type, label]) => `<div class="stat ${type}"><span>${label}</span><strong>${result.stats[type]}<small>개 블록</small></strong></div>`).join('');
   $('#warnings').innerHTML = warningsHtml(result);
   $('#limitations').innerHTML = result.limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('');
-  $('#old-column').textContent = `구버전 · ${result.documents.before.name}`;
-  $('#new-column').textContent = `신버전 · ${result.documents.after.name}`;
-  $('#old-preview-name').textContent = `구버전 · ${result.documents.before.name}`;
-  $('#new-preview-name').textContent = `신버전 · ${result.documents.after.name}`;
+  for (const [side, key] of [['old', 'before'], ['new', 'after']]) {
+    for (const suffix of ['column', 'preview-name', 'summary']) $(`#${side}-${suffix}`).innerHTML = `<span>${side === 'old' ? '구버전' : '신버전'} · </span>${fileLabel(result.documents[key].name)}`;
+  }
   $('#preview-change').innerHTML = result.diffs.filter(d => d.type !== 'unchanged').map(d => `<option value="${d.id}">${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 45))}</option>`).join('') || '<option value="">변경 없음</option>';
   renderList();
+  $('#results').scrollIntoView({ block: 'start' });
+}
+function filteredDiffs() {
+  if (!result) return [];
+  const query = $('#search').value.trim().toLocaleLowerCase();
+  return result.diffs.filter(d => (filter === 'all' || (filter === 'changes' ? d.type !== 'unchanged' : d.type === filter)) &&
+    (!query || `${blockText(d.before)}\n${blockText(d.after)}`.toLocaleLowerCase().includes(query)));
 }
 function renderList() {
   if (!result) return;
-  const query = $('#search').value.trim().toLocaleLowerCase();
-  const diffs = result.diffs.filter(d => (filter === 'all' || (filter === 'changes' ? d.type !== 'unchanged' : d.type === filter)) &&
-    (!query || `${blockText(d.before)}\n${blockText(d.after)}`.toLocaleLowerCase().includes(query)));
+  const diffs = filteredDiffs();
   $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true)).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
   $('#load-more').hidden = diffs.length <= shown;
   $('#load-more').textContent = `다음 50개 보기 (${Math.min(shown, diffs.length)} / ${diffs.length})`;
   document.querySelectorAll('[data-filter]').forEach(button => { const selected = button.dataset.filter === filter; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
+  updateNavigator();
 }
+
+function updateNavigator() {
+  const changes = filteredDiffs().filter(d => d.type !== 'unchanged');
+  if (!changes.some(d => d.id === selectedId)) selectedId = changes[0]?.id ?? null;
+  const position = changes.findIndex(d => d.id === selectedId);
+  $('#change-list').innerHTML = changes.map(d => `<option value="${d.id}">${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 65))}</option>`).join('') || '<option>해당 변경 없음</option>';
+  $('#change-list').value = selectedId ?? '';
+  $('#change-position').textContent = changes.length ? `${position + 1} / ${changes.length}개 변경` : '해당 변경 없음';
+  $('#previous-change').disabled = position <= 0;
+  $('#next-change').disabled = position < 0 || position >= changes.length - 1;
+  document.querySelectorAll('[data-diff-id]').forEach(el => el.classList.toggle('selected-change', Number(el.dataset.diffId) === selectedId));
+}
+function selectChange(id) {
+  selectedId = Number(id); updateNavigator();
+  if (!$('#preview-panel').hidden) return jumpToDiff(selectedId);
+  const index = filteredDiffs().findIndex(d => d.id === selectedId);
+  if (index >= shown) { shown = index + 1; renderList(); }
+  const card = $(`#change-${selectedId}`);
+  card?.scrollIntoView({ block: 'start' }); card?.focus({ preventScroll: true });
+}
+$('#change-list').addEventListener('change', e => selectChange(e.target.value));
+for (const [button, delta] of [['previous-change', -1], ['next-change', 1]]) $(`#${button}`).addEventListener('click', () => {
+  const changes = filteredDiffs().filter(d => d.type !== 'unchanged');
+  const next = changes[changes.findIndex(d => d.id === selectedId) + delta];
+  if (next) selectChange(next.id);
+});
+$('#edit-files').addEventListener('click', () => {
+  const expanded = document.body.classList.toggle('edit-files');
+  $('#edit-files').setAttribute('aria-expanded', String(expanded));
+  if (expanded) $('.upload-panel').scrollIntoView({ block: 'start' });
+});
 $('#filters').addEventListener('click', event => { const button = event.target.closest('[data-filter]'); if (button) { filter = button.dataset.filter; shown = 50; renderList(); } });
 $('#search').addEventListener('input', () => { shown = 50; renderList(); });
 $('#load-more').addEventListener('click', () => { shown += 50; renderList(); });
@@ -111,10 +150,13 @@ $('#export-html').addEventListener('click', () => { if (result) download(exportH
 $('#export-json').addEventListener('click', () => { if (result) download(JSON.stringify(result, null, 2), 'application/json;charset=utf-8', 'json'); });
 
 function setView(preview) {
+  const wasPreview = !$('#preview-panel').hidden;
+  if (preview && !wasPreview) contentScroll = window.scrollY;
   $('#content-panel').hidden = preview; $('#preview-panel').hidden = !preview;
   for (const [id, active] of [['view-content', !preview], ['view-preview', preview]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
+  if (!preview && wasPreview && result) requestAnimationFrame(() => window.scrollTo({ top: contentScroll }));
 }
 function updatePageButtons() {
   for (const side of ['old', 'new']) {
@@ -164,6 +206,7 @@ async function showPreview(pages = { ...previewPages }, note = '') {
 function jumpToDiff(id) {
   const diff = result?.diffs.find(d => d.id === Number(id));
   if (!diff) return showPreview();
+  selectedId = diff.id; updateNavigator();
   const pages = {}; let approximate = false;
   for (const [side, docKey, pageKey] of [['old', 'before', 'oldPage'], ['new', 'after', 'newPage']]) {
     if (result.documents[docKey].pageMode === 'layout' && diff[pageKey]) pages[side] = diff[pageKey];
