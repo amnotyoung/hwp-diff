@@ -59,15 +59,23 @@ async function previewRequest(req) {
     .catch(() => { throw new HttpError(400, '미리보기 요청을 읽을 수 없습니다.'); });
   const page = Number(form.get('page') ?? 1);
   if (!Number.isInteger(page) || page < 1 || page > 2000) throw new HttpError(400, '올바른 쪽 번호를 선택해 주세요.');
+  let targets = [];
+  const rawTargets = form.get('targets');
+  if (rawTargets) {
+    if (typeof rawTargets !== 'string' || rawTargets.length > 6_000_000) throw new HttpError(400, '변경 목록이 너무 큽니다. 문서를 나누어 비교해 주세요.');
+    try { targets = JSON.parse(rawTargets); } catch { throw new HttpError(400, '변경 목록을 읽을 수 없습니다.'); }
+    if (!Array.isArray(targets) || targets.length > 2000 || targets.some(t => !t || !Number.isInteger(t.id) || !['added', 'removed', 'modified'].includes(t.type))) throw new HttpError(400, '올바르지 않은 변경 목록입니다.');
+  }
+  const options = { targets, focusId: Number(form.get('focusId')), jump: form.get('jump') === '1' };
   if (form.get('demo') === '1') {
     const side = form.get('side');
     if (!['old', 'new'].includes(side)) throw new HttpError(400, '미리볼 문서를 선택해 주세요.');
-    return { preview: true, demo: true, side, page };
+    return { preview: true, demo: true, side, page, options };
   }
   const file = form.get('file');
   if (!file || typeof file === 'string' || !/\.(hwp|hwpx)$/i.test(file.name)) throw new HttpError(400, 'HWP·HWPX 문서를 선택해 주세요.');
   if (!file.size || file.size > MAX_FILE) throw new HttpError(413, '파일별 최대 크기는 20MB입니다. 빈 파일은 열 수 없습니다.');
-  return { preview: true, page, file: { bytes: new Uint8Array(await file.arrayBuffer()) } };
+  return { preview: true, page, options, file: { bytes: new Uint8Array(await file.arrayBuffer()) } };
 }
 
 function runWorker(data, signal) {

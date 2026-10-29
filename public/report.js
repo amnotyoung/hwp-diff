@@ -10,6 +10,15 @@ export function fileLabel(name, limit = 42) {
   return `<span class="file-name" title="${escapeHtml(name)}">${escapeHtml(short)}</span>${version ? `<span class="version-badge">${escapeHtml(version)}</span>` : ''}`;
 }
 
+export function previewTargets(result, side) {
+  const old = side === 'old';
+  return result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
+    id: d.id, type: d.type, block: old ? d.before : d.after,
+    anchor: old ? d.oldAnchor : d.newAnchor,
+    cells: d.cells.map(c => ({ row: c.row, col: c.col })),
+  }));
+}
+
 // Exact character diff for the changed region; bound quadratic work for long paragraphs.
 export function highlight(before = '', after = '') {
   const a = Array.from(before), b = Array.from(after);

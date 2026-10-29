@@ -4,6 +4,8 @@ import { once } from 'node:events';
 import http from 'node:http';
 import { createServer } from '../src/server.mjs';
 import { sampleFiles } from '../src/sample-data.mjs';
+import { compareDocuments } from '../src/engine.mjs';
+import { previewTargets } from '../public/report.js';
 
 let server, base, files;
 before(async () => {
@@ -43,6 +45,15 @@ test('preview endpoint renders selected uploaded document and demo; rejects inva
   const demo = new FormData(); demo.append('demo', '1'); demo.append('side', 'new'); demo.append('page', '1');
   assert.equal((await post('/api/preview', demo)).status, 200);
   demo.set('page', '0'); assert.equal((await post('/api/preview', demo)).status, 400);
+});
+test('preview API carries changed-cell geometry and rejects malformed target lists', async () => {
+  const result = await compareDocuments(files.oldFile, files.newFile);
+  const f = new FormData(); f.append('file', new Blob([files.newFile.bytes]), files.newFile.name);
+  f.append('targets', JSON.stringify(previewTargets(result, 'new'))); f.append('focusId', '6'); f.append('jump', '1');
+  const response = await post('/api/preview', f); assert.equal(response.status, 200);
+  assert.equal((await response.json()).locations.find(l => l.id === 6).boxes.length, 3);
+  f.set('targets', '{bad json'); assert.equal((await post('/api/preview', f)).status, 400);
+  f.set('targets', '[{"id":1,"type":"image"}]'); assert.equal((await post('/api/preview', f)).status, 400);
 });
 test('missing files, unsupported extension, corrupt bytes and oversize request are rejected', async () => {
   assert.equal((await post('/api/compare', new FormData())).status, 400);

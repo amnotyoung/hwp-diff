@@ -6,7 +6,7 @@ import { previewDocument } from './preview.mjs';
 try {
   const files = workerData.demo ? await sampleFiles() : workerData;
   const result = workerData.preview
-    ? await previewDocument(workerData.demo ? files[workerData.side === 'old' ? 'oldFile' : 'newFile'] : workerData.file, workerData.page)
+    ? await previewDocument(workerData.demo ? files[workerData.side === 'old' ? 'oldFile' : 'newFile'] : workerData.file, workerData.page, workerData.options)
     : await compareDocuments(files.oldFile, files.newFile);
   parentPort.postMessage({ result });
 } catch (error) {

@@ -16,7 +16,8 @@ export function content(block) {
   const children = block.children?.map(content).filter(Boolean);
   if (children?.length) out.children = children;
   if (block.footnoteText) out.footnoteText = block.footnoteText;
-  if (block.footnoteBlocks?.length) out.footnoteBlocks = block.footnoteBlocks.map(content);
+  const notes = block.footnoteBlocks?.map(content).filter(Boolean);
+  if (notes?.length) out.footnoteBlocks = notes;
   if (block.table) {
     const t = block.table;
     out.table = {
@@ -74,10 +75,28 @@ export function compareBlocks(before, after, metadata = {}) {
     throw new Error('문단 수가 첫 버전의 처리 한도를 넘습니다. 문서를 나누어 비교해 주세요.');
   }
   // Unsupported objects must not participate in alignment or change counts.
-  const aligned = diffBlocks(before.filter(b => b.type !== 'image'), after.filter(b => b.type !== 'image'));
+  const originals = new Map();
+  const comparable = blocks => blocks.filter(b => b.type !== 'image').map(raw => {
+    const projected = content(raw);
+    // Leave table.text absent: Kordoc otherwise matches every table as empty text.
+    const alignment = { ...projected, text: raw.type === 'table' ? undefined : projected.text };
+    originals.set(alignment, raw); return alignment;
+  });
+  const aligned = diffBlocks(comparable(before), comparable(after));
   const stats = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   const oldIndexes = new Map(before.map((b, i) => [b, i + 1]));
   const newIndexes = new Map(after.map((b, i) => [b, i + 1]));
+  const anchors = blocks => {
+    const counts = new Map();
+    const entries = blocks.map(block => {
+      const key = (block.text ?? '').replace(/\s+/gu, '');
+      const occurrence = counts.get(key) ?? 0; counts.set(key, occurrence + 1);
+      return [block, { sourceId: block.table?.sourceId ?? null, occurrence }];
+    });
+    for (const [block, anchor] of entries) anchor.count = counts.get((block.text ?? '').replace(/\s+/gu, ''));
+    return new Map(entries);
+  };
+  const oldAnchors = anchors(before), newAnchors = anchors(after);
   const diffs = aligned.diffs.map((pair, index) => {
     const a = content(pair.before), b = content(pair.after);
     // Kordoc 4.24.18 treats >= .99 similarity as unchanged. Use exact equality
@@ -87,8 +106,9 @@ export function compareBlocks(before, after, metadata = {}) {
     stats[type]++;
     return {
       id: index + 1, type, before: a, after: b,
-      oldIndex: oldIndexes.get(pair.before) ?? null, newIndex: newIndexes.get(pair.after) ?? null,
-      oldPage: pair.before?.pageNumber ?? null, newPage: pair.after?.pageNumber ?? null,
+      oldIndex: oldIndexes.get(originals.get(pair.before)) ?? null, newIndex: newIndexes.get(originals.get(pair.after)) ?? null,
+      oldPage: originals.get(pair.before)?.pageNumber ?? null, newPage: originals.get(pair.after)?.pageNumber ?? null,
+      oldAnchor: oldAnchors.get(originals.get(pair.before)) ?? null, newAnchor: newAnchors.get(originals.get(pair.after)) ?? null,
       cells: a?.table && b?.table ? cellChanges(a.table, b.table) : [],
     };
   });
