@@ -41,6 +41,63 @@ export function textSummary(diff) {
   return Object.entries(counts).filter(([, n]) => n).map(([type, n]) => `문구 ${n}곳 ${labels[type]}`).join(' · ');
 }
 
+// Keep the first actual edit visible, even when it occurs at the end of a long cell.
+function briefEdit(before, after, side) {
+  const text = side === 'before' ? before : after;
+  if (!text) return '<span class="empty-block">해당 내용 없음</span>';
+  const change = textChanges(before, after)[0];
+  const at = change?.[`${side}Start`] ?? 0, endAt = change?.[`${side}End`] ?? 0;
+  const start = Math.max(0, at - 12), end = Math.min(text.length, Math.max(at + 72, Math.min(endAt + 24, at + 120)));
+  let html = start ? '…' : '';
+  for (const p of textParts(before, after)) {
+    if (side === 'before' ? p.type === 'added' : p.type === 'removed') continue;
+    const from = Math.max(start, p[`${side}Start`]), to = Math.min(end, p[`${side}Start`] + p.text.length);
+    if (to <= from) continue;
+    const chunk = escapeHtml(p.text.slice(from - p[`${side}Start`], to - p[`${side}Start`]));
+    html += p.type === 'equal' ? chunk : `<mark class="${p.type}">${chunk}</mark>`;
+  }
+  return html + (end < text.length ? '…' : '');
+}
+
+export function previewExplanation(diff, category = 'content') {
+  if (!diff) return '<p>현재 조건에 해당하는 변경이 없습니다.</p>';
+  let title, before = '', after = '', note = '';
+  if (category === 'format') {
+    title = `서식 변경 · ${diff.text}`;
+    const value = (c, side) => `${c.label} ${c[side] === 'AUTO' ? '자동' : c[side]}${['spacing', 'ratio'].includes(c.property) ? '%' : ''}`;
+    before = diff.changes.map(c => value(c, 'before')).join(' · ');
+    after = diff.changes.map(c => value(c, 'after')).join(' · ');
+  } else if (category === 'memo') {
+    title = `메모 ${labels[diff.type]}`;
+    before = diff.before?.text ?? ''; after = diff.after?.text ?? '';
+    if (diff.type === 'modified' && before === after) {
+      note = '내용 동일 · 작성자 또는 연결 위치 변경';
+      before = `${diff.before.author || '작성자 정보 없음'} · ${diff.before.anchorText || diff.before.context || ''}`;
+      after = `${diff.after.author || '작성자 정보 없음'} · ${diff.after.anchorText || diff.after.context || ''}`;
+    }
+  } else {
+    title = `${labels[diff.type]} · 항목 ${diff.id}`;
+    const cell = diff.cells?.find(c => (c.before?.text ?? '') !== (c.after?.text ?? '')) ?? diff.cells?.[0];
+    before = cell ? cell.before?.text ?? '' : blockText(diff.before);
+    after = cell ? cell.after?.text ?? '' : blockText(diff.after);
+    note = [cell ? `${cell.row}행 ${cell.col}열 · 변경 셀 ${diff.cells.length}개` : '', textSummary(diff)].filter(Boolean).join(' · ');
+    if (diff.type === 'structure') {
+      before = (diff.structureChanges ?? []).map(c => structureLabel(c.before)).join(' · ');
+      after = (diff.structureChanges ?? []).map(c => structureLabel(c.after)).join(' · ');
+      note = '본문 동일 · 제목/문단 분류 변경';
+    } else if (before === after && (diff.before?.table || diff.after?.table)) {
+      const shape = (block, value) => `${block?.table ? `${block.table.rows}행 × ${block.table.cols}열` : '표 없음'}${value ? ` · 셀 병합 ${value.rowSpan}행 × ${value.colSpan}열` : ''}`;
+      before = shape(diff.before, cell?.before); after = shape(diff.after, cell?.after); note = '표 구조 변경';
+    }
+  }
+  return `<div class="explanation-heading"><strong>${escapeHtml(title)}</strong>${note ? `<span>${escapeHtml(note)}</span>` : ''}</div><div class="explanation-values">${[['before', before], ['after', after]].map(([side, text]) => `<p><span class="explanation-side">${side === 'before' ? '구버전' : '신버전'}</span><span class="explanation-excerpt" title="${escapeHtml(text)}">${briefEdit(before, after, side)}</span></p>`).join('')}</div>`;
+}
+
+export function changeCounts(result) {
+  return [['added', '추가', result.stats.added], ['removed', '삭제', result.stats.removed], ['modified', '수정', result.stats.modified], ['structure', '구조', result.structureStats?.changed ?? 0]]
+    .map(([type, label, count]) => `<span class="count-${type}">${label} <strong>${count}</strong></span>`).join('');
+}
+
 // Show actual edits (or search matches) first; unchanged context remains available.
 export function focusedText(before, after, side, query = '') {
   const text = side === 'before' ? before : after;

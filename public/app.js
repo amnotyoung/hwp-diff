@@ -1,4 +1,4 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, changeCounts } from './report.js';
 import { markSearch } from './search.js';
 import { canvasWidth } from './view-layout.js';
 
@@ -99,6 +99,7 @@ function setBusy(busy, preview = false) {
   updateFiles();
   if (!busy) { updatePageButtons(); if (result) updateNavigator(); }
   updateSearchControls();
+  updateToolbar();
 }
 async function compare(demo = false, reverse = false) {
   if (controller) return;
@@ -137,7 +138,7 @@ function showResults() {
   if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 ${formatCount}곳` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
-  if (total > 1 && !formatCount && !memoChanges && !result.structureStats?.changed) $('#result-title').textContent = `변경 ${total}개${isDemo ? ' (샘플)' : ''}`;
+  $('#result-title').innerHTML = changeCounts(result);
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 확인 필요';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : result.formatting?.reason === 'unsupported-format' ? '서식 미검사' : '서식 확인 필요';
@@ -188,17 +189,38 @@ function renderList() {
   if ($('#preview-panel').hidden) { searchIndex = contentHits.length ? 0 : -1; updateSearchControls(); }
 }
 
+function navigationContext() {
+  const preview = !$('#preview-panel').hidden;
+  if (!$('#memo-panel').hidden || preview && selectedMemoId) return { category: 'memo', items: (result?.annotations?.diffs ?? []).filter(d => d.type !== 'unchanged' || d.id === selectedMemoId), id: selectedMemoId };
+  if (!$('#format-panel').hidden || preview && selectedFormatId) return { category: 'format', items: result?.formatting?.diffs ?? [], id: selectedFormatId };
+  return { category: 'content', items: filteredDiffs().filter(d => d.type !== 'unchanged'), id: selectedId };
+}
 function updateNavigator() {
-  const changes = filteredDiffs().filter(d => d.type !== 'unchanged');
-  if (!changes.some(d => d.id === selectedId)) selectedId = changes[0]?.id ?? null;
-  const position = changes.findIndex(d => d.id === selectedId);
-  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${d.id}">${i + 1} / ${changes.length} · ${labels[d.type]} · 항목 ${d.id} · ${escapeHtml(blockText(d.after ?? d.before).slice(0, 65))}</option>`).join('') || '<option>0 / 0</option>';
-  $('#change-list').value = selectedId ?? '';
+  const { category, items: changes, id } = navigationContext();
+  const active = changes.some(d => d.id === id) ? id : changes[0]?.id ?? null;
+  if (category === 'memo') selectedMemoId = active;
+  else if (category === 'format') selectedFormatId = active;
+  else selectedId = active;
+  const position = changes.findIndex(d => d.id === active);
+  const description = d => category === 'format' ? `서식 · ${d.text}` : category === 'memo' ? `메모 ${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
+  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${escapeHtml(d.id)}">${i + 1} / ${changes.length} · ${escapeHtml(description(d).slice(0, 90))}</option>`).join('') || '<option value="">변경 없음</option>';
+  $('#change-list').value = active ?? '';
   $('#change-position').textContent = changes.length ? `${position + 1} / ${changes.length}개 변경` : '해당 변경 없음';
-  $('#change-list').title = changes[position] ? `${labels[changes[position].type]} · 항목 ${changes[position].id} · ${blockText(changes[position].after ?? changes[position].before).slice(0, 150)}` : '해당 변경 없음';
-  $('#previous-change').disabled = position <= 0;
-  $('#next-change').disabled = position < 0 || position >= changes.length - 1;
+  $('#change-list').title = changes[position] ? description(changes[position]).slice(0, 150) : '해당 변경 없음';
+  $('#change-list').disabled = !!controller || !changes.length;
+  $('#previous-change').disabled = !!controller || position <= 0;
+  $('#next-change').disabled = !!controller || position < 0 || position >= changes.length - 1;
   document.querySelectorAll('[data-diff-id]').forEach(el => el.classList.toggle('selected-change', Number(el.dataset.diffId) === selectedId));
+  document.querySelectorAll('#memo-panel .memo-card, #format-panel .format-card').forEach(el => el.classList.toggle('selected-change', el.id === active));
+}
+function selectNavigation(id) {
+  if (controller) return;
+  const { category } = navigationContext();
+  if (category === 'content') return selectChange(id);
+  if (!$('#preview-panel').hidden) return category === 'memo' ? jumpToMemo(id) : jumpToFormat(id);
+  if (category === 'memo') selectedMemoId = id; else selectedFormatId = id;
+  updateNavigator();
+  $(`#${id}`)?.scrollIntoView({ block: 'start' });
 }
 function selectChange(id) {
   if (controller) return;
@@ -220,11 +242,11 @@ function rememberContentPosition() {
 for (const event of ['wheel', 'touchmove']) window.addEventListener(event, () => requestAnimationFrame(rememberContentPosition), { passive: true });
 window.addEventListener('keydown', e => { if (['PageDown', 'PageUp', 'Home', 'End', 'ArrowDown', 'ArrowUp', ' '].includes(e.key)) requestAnimationFrame(rememberContentPosition); });
 window.addEventListener('pointerup', e => { if (e.clientX >= document.documentElement.clientWidth - 16) rememberContentPosition(); });
-$('#change-list').addEventListener('change', e => selectChange(e.target.value));
+$('#change-list').addEventListener('change', e => selectNavigation(e.target.value));
 for (const [button, delta] of [['previous-change', -1], ['next-change', 1]]) $(`#${button}`).addEventListener('click', () => {
-  const changes = filteredDiffs().filter(d => d.type !== 'unchanged');
-  const next = changes[changes.findIndex(d => d.id === selectedId) + delta];
-  if (next) selectChange(next.id);
+  const { items, id } = navigationContext();
+  const next = items[items.findIndex(d => d.id === id) + delta];
+  if (next) selectNavigation(next.id);
 });
 $('#edit-files').addEventListener('click', () => {
   $('#workbench-menu').open = false;
@@ -250,11 +272,11 @@ function setView(preview) {
   if (wasPreview && !preview) { previewWindowScroll = window.scrollY; for (const side of ['old', 'new']) savePreviewScroll(side); }
   if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
   document.body.classList.toggle('preview-mode', preview);
-  $('#preview-actions').hidden = !preview;
   $('#content-panel').hidden = preview || memoView || formatView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView; $('#format-panel').hidden = !formatView;
-  const memoOnlyPreview = preview && result && (!result.diffs.some(d => d.type !== 'unchanged') || selectedMemoId || selectedFormatId);
-  $('.results-toolbar').hidden = memoView || formatView;
-  $('.change-navigator').hidden = memoView || formatView || memoOnlyPreview;
+  if (memoView) selectedFormatId = null;
+  if (formatView) selectedMemoId = null;
+  if (result) updateNavigator();
+  updateToolbar();
   for (const [id, active] of [['view-content', !preview && !memoView && !formatView], ['view-preview', preview], ['view-memos', memoView], ['view-formats', formatView]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
@@ -272,6 +294,14 @@ function setView(preview) {
   });
   updateSearchControls();
   if (preview) { window.scrollTo({ top: 0, behavior: 'instant' }); requestAnimationFrame(fitPreviewPages); }
+}
+function updateToolbar() {
+  const preview = !$('#preview-panel').hidden;
+  const content = $('#memo-panel').hidden && $('#format-panel').hidden && (!preview || !selectedMemoId && !selectedFormatId);
+  document.querySelectorAll('[data-filter], #search, #toggle-search').forEach(el => { el.disabled = !!controller || !content; });
+  if (!content) { $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false'); }
+  $('#preview-zoom').disabled = !preview;
+  $('#toggle-details').disabled = !preview;
 }
 function updatePageButtons() {
   for (const side of ['old', 'new']) {
@@ -420,6 +450,9 @@ for (const side of ['old', 'new']) {
 
 function showSelectedDetail() {
   updateVisibleSelection();
+  const summaryDiff = selectedFormatId ? result?.formatting?.diffs.find(d => d.id === selectedFormatId) : selectedMemoId ? result?.annotations?.diffs.find(d => d.id === selectedMemoId) : result?.diffs.find(d => d.id === selectedId);
+  $('#preview-explanation-text').innerHTML = previewExplanation(summaryDiff, selectedFormatId ? 'format' : selectedMemoId ? 'memo' : 'content');
+  $('#expand-explanation').disabled = !summaryDiff;
   if (selectedFormatId) {
     const formats = result?.formatting?.diffs ?? [], index = formats.findIndex(d => d.id === selectedFormatId);
     $('#selection-title').textContent = `서식 변경 구간 ${index + 1}`;
@@ -580,6 +613,7 @@ function setDetails(open) {
   else (compactScreen.matches ? $('#workbench-menu>summary') : $('#toggle-details')).focus();
 }
 $('#toggle-details').addEventListener('click', () => setDetails($('#selection-panel').hidden));
+$('#expand-explanation').addEventListener('click', () => setDetails(true));
 $('#close-details').addEventListener('click', () => setDetails(false));
 function setSearch(open) {
   $('#search-panel').hidden = !open; $('#toggle-search').setAttribute('aria-expanded', String(open));
