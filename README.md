@@ -4,13 +4,13 @@
 
 ## 사용자 배포 파일
 
-- **macOS:** `dist/한컴 diff.dmg`를 열고 `한컴 diff.app`을 Applications로 복사한 뒤 실행합니다. Apple Silicon·Intel용 Node 런타임을 모두 포함하므로 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다.
+- **macOS (Apple Silicon):** `한컴 diff (Apple Silicon).dmg`를 열고 `한컴 diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
 - **Windows x64:** `dist/한컴 diff.exe` 한 파일을 실행합니다(`npm run build:win`). 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
 - 두 버전 모두 로컬 전용 빈 포트를 자동으로 고릅니다. 화면의 **프로그램 종료**(첫 화면 상단, 결과 화면의 ⋯ 메뉴)를 누르거나 마지막 앱 탭을 닫으면 종료합니다. 탭을 닫은 경우 새로고침을 고려해 약 10초 뒤 종료합니다.
 - 현재 빌드는 검증용이며 코드서명·공증 전입니다. 배포 파일은 GitHub 저장소의 Releases에서 받습니다.
 - **Mac 첫 실행:** 앱을 한 번 실행해 차단 안내가 뜨면 **시스템 설정 → 개인정보 보호 및 보안**에서 ‘한컴 diff’의 **그래도 열기**를 누릅니다. macOS 15 이후에는 Finder 우클릭 → 열기로는 열리지 않습니다.
 - **Windows 첫 실행:** “Windows의 PC 보호” 창이 뜨면 **추가 정보 → 실행**을 누릅니다. 회사 PC 정책이 서명 없는 실행 파일을 막으면 실행되지 않습니다.
-- Mac arm64·x64(Rosetta) 포함 런타임의 비교·렌더 실행은 빌드 후 검증합니다. Windows EXE의 실기기 실행과 Intel Mac 실기기 실행은 별도로 확인해야 합니다.
+- Apple Silicon DMG는 빌드 중 포함 런타임의 비교·렌더 실행을 검증합니다. Windows EXE는 Windows 기기에서 따로 확인해야 합니다.
 
 ## 개발 실행
 
@@ -153,4 +153,4 @@ Mac DMG는 macOS의 `clang`, `codesign`, `hdiutil`로 만듭니다. Windows EXE�
 
 빌드 도구와 중간 파일은 `.build-cache/`, 배포 파일은 `dist/`에 만들며 Git에서 제외합니다. 명시적 포함 목록(`src`, `public`, 고정된 JS 의존성, `package.json`, `package-lock.json`, `README.md`)만 앱에 넣으므로 문서·테스트·`.git`·`.env`·개발 산출물은 들어가지 않습니다. 네이티브 의존성이 발견되면 빌드를 중단합니다.
 
-포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-build-info.json`과 `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.
+포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-arm64-build-info.json`과 `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.
