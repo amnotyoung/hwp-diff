@@ -1065,3 +1065,40 @@ window.addEventListener('keydown', event => {
   if (!$('#search-panel').hidden) setSearch(false);
   else if (!$('#selection-panel').hidden) setDetails(false);
 });
+
+// Only the packaged app (DMG/EXE) answers portable: true. It stops when the
+// user presses 프로그램 종료 or about 10 seconds after the last app tab closes.
+(async function connectPortableRuntime() {
+  try {
+    const response = await fetch('/api/app');
+    if (!response.ok || !(await response.json()).portable) return;
+    const buttons = [...document.querySelectorAll('.exit-app')];
+    buttons.forEach(button => { button.hidden = false; });
+    let session = null, exiting = false;
+    const connect = () => {
+      if (session || exiting) return;
+      session = new EventSource('/api/session');
+      session.onerror = () => {
+        session?.close(); session = null;
+        if (!exiting) showError('프로그램 연결이 끊겼습니다. 다시 사용하려면 한컴 diff를 실행하세요.');
+      };
+    };
+    connect();
+    window.addEventListener('pagehide', () => { session?.close(); session = null; });
+    window.addEventListener('pageshow', connect);
+    const exit = async () => {
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        const stopped = await fetch('/api/exit', { method: 'POST', headers: { 'X-Hwp-Diff': '1' } });
+        if (!stopped.ok) throw new Error('exit failed');
+        exiting = true; session?.close(); session = null;
+        $('#workbench-menu').open = false;
+        showError(); $('#status').textContent = '프로그램을 종료했습니다. 이 탭을 닫아도 됩니다.';
+      } catch {
+        buttons.forEach(button => { button.disabled = false; });
+        showError('종료하지 못했습니다. 잠시 후 다시 누르세요.');
+      }
+    };
+    buttons.forEach(button => button.addEventListener('click', exit));
+  } catch { /* Development servers have no launcher controls. */ }
+})();

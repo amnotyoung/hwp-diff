@@ -2,7 +2,14 @@
 
 폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
 
-## 실행
+## 사용자 배포 파일
+
+- **macOS:** `dist/한컴 diff.dmg`를 열고 `한컴 diff.app`을 Applications로 복사한 뒤 실행합니다. Apple Silicon·Intel용 Node 런타임을 모두 포함하므로 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다.
+- **Windows x64:** `dist/한컴 diff.exe` 한 파일을 실행합니다(`npm run build:win`). 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
+- 두 버전 모두 로컬 전용 빈 포트를 자동으로 고릅니다. 화면의 **프로그램 종료**(첫 화면 상단, 결과 화면의 ⋯ 메뉴)를 누르거나 마지막 앱 탭을 닫으면 종료합니다. 탭을 닫은 경우 새로고침을 고려해 약 10초 뒤 종료합니다.
+- 현재 빌드는 검증용입니다. Mac은 임시(ad-hoc) 서명이며 Apple 공증 전이므로 처음 열 때 Finder에서 앱을 우클릭 → **열기**를 선택해야 합니다. Windows EXE는 코드서명 전이라 SmartScreen 경고가 표시될 수 있습니다. Mac arm64 포함 런타임의 비교·렌더 실행은 빌드 중 검증하며, Windows와 Intel Mac 실기기 검증은 별도로 필요합니다.
+
+## 개발 실행
 
 **`public/index.html`을 직접 열지 마세요.** Windows에서는 `start-windows.cmd`를 실행하면 서버가 준비된 뒤 기본 브라우저에 실행 화면이 열립니다. HTML을 직접 열면 실행 방법 안내만 표시합니다.
 
@@ -15,7 +22,7 @@ npm start
 
 브라우저에서 <http://127.0.0.1:3210>을 엽니다. 구버전과 신버전을 선택하고 **변경 사항 비교**를 누릅니다. **샘플 비교**는 실제 HWPX 두 개를 메모리에서 생성한 뒤 동일한 파서·비교 엔진으로 처리합니다. 종료는 터미널에서 `Ctrl+C`입니다.
 
-**주 사용 환경은 Windows OS의 Edge·Chrome입니다.** Windows에서는 Node.js와 의존성을 준비한 뒤 `start-windows.cmd`를 실행할 수 있습니다. `runtime/node.exe`가 있으면 이를 사용하고, 없으면 설치된 Node.js를 사용합니다. 현재는 로컬 브라우저 앱이며 설치형 EXE는 아직 제공하지 않습니다.
+**주 사용 환경은 Windows OS의 Edge·Chrome입니다.** Windows에서는 Node.js와 의존성을 준비한 뒤 `start-windows.cmd`를 실행할 수 있습니다. `runtime/node.exe`가 있으면 이를 사용하고, 없으면 설치된 Node.js를 사용합니다. 이 실행 방식은 개발·검증용입니다. 일반 사용자에게는 위의 배포 파일을 전달합니다.
 
 ## 지원 기능
 
@@ -50,7 +57,7 @@ Kordoc 4.24.21의 `parse()`와 `diffBlocks()`를 사용합니다. `diffBlocks()`
 - 읽기 실패, 암호/DRM, 손상 파일은 오류로 표시합니다. 복구 파싱의 누락 가능성은 파서 경고와 함께 검토해야 합니다.
 - 최대 2,000블록/문서, 두 문서 블록 수 곱 2,000,000, 비교 시간 60초 제한. Worker의 JS 힙 제한은 512MB이며 전체 프로세스 메모리 상한은 아닙니다.
 
-## 폐쇄망 반입
+## 소스 형태의 폐쇄망 반입 (개발·검증용)
 
 1. 반입 대상과 동일한 OS/CPU의 준비 PC에서 프로젝트와 Node.js 22 이상 런타임을 준비합니다.
 2. `npm ci --omit=optional --ignore-scripts`로 `package-lock.json`에 고정된 의존성을 설치하고 `npm test`를 실행합니다.
@@ -75,7 +82,7 @@ npm run samples
 
 `src/engine.mjs`는 파싱 및 정확 비교, `src/server.mjs`는 로컬 HTTP 서버, `public/`은 화면 및 보고서 생성, `tests/`는 회귀·통합 테스트를 담당합니다. 순수 JavaScript ESM과 Node 내장 기능으로 구성하여 별도 빌드 과정이 없습니다.
 
-후속 개발: 실제 업무 문서 코퍼스로 HWP/병합표 검증 → 행·문단 이동 대응 개선 → Windows 포터블 배포 패키지 제작.
+후속 개발: 실제 업무 문서 코퍼스로 HWP/병합표 검증 → Windows 실기기 검증 → 코드서명·공증.
 
 자동 테스트는 `node --test` 자동 탐색을 사용하여 Windows 셸의 와일드카드 확장에 의존하지 않습니다. 개발 환경의 브라우저 검증과 실제 Windows 폐쇄망 검증은 구분하며, 실제 Windows PC에서 포터블 런타임·업무 문서·설치 글꼴 조합의 최종 확인이 필요합니다.
 
@@ -129,3 +136,18 @@ HWPX `charPr` 및 언어별 `fontRef`를 실제 글꼴 이름·색상·수치로
 긴 셀의 내용은 양쪽에 공통으로 등장하는 고유한 소제목을 기준으로 문단 구간을 나눕니다. 내용 비교와 원본 상세에서 이전·다음 구간으로 이동하며, 원본에서는 현재 구간을 진하게, 나머지를 옅게 표시합니다. 원본에서 확인할 수 없는 위치는 임의로 다음 쪽에 배치하지 않습니다. 같은 제목이 고유하게 나타나는 삭제·추가 문단은 ‘대응 후보’로 연결해 나란히 볼 수 있으며, 원래의 변경 집계는 유지합니다. 제목이 중복되어 대응이 모호하면 자동 연결하지 않습니다.
 
 Kordoc 4.24.21(공식 npm 최신 버전 확인: 2026-10-29)으로 고정했습니다. 제공된 HWP 초록은 공식 `renderDocumentToScene`의 reflow 켬/끔, `renderHwp5Pages`, `renderDocument(format: svg)`에서 모두 누락이 재현되어 해결됐다고 표시하지 않습니다. 별도 HWP 파서는 추가하지 않았습니다. 강조 영역은 선언된 쪽 경계와 교차하는 부분만 표시하며, 범위 밖·0 크기·중복 영역을 제거합니다. 쪽 밖 좌표를 임의의 다음 쪽으로 옮기지 않습니다. 키보드 초점은 변경 항목마다 한 번만 제공하며, 강조 버튼으로 표시를 숨길 수 있습니다.
+
+## 배포 빌드
+
+```sh
+npm ci --omit=optional --ignore-scripts
+npm test
+npm run build:mac
+npm run build:win
+```
+
+Mac DMG는 macOS의 `clang`, `codesign`, `hdiutil`로 만듭니다. Windows EXE는 NSIS 컴파일러로 macOS·Linux·Windows에서 만들 수 있습니다. Node 런타임과 NSIS 도구는 `packaging/inputs.json`의 공식 URL·버전에 고정하고 SHA-256을 검증합니다. 첫 빌드에는 인터넷이 필요하고, 캐시가 준비되면 `-- --offline`으로 다시 만들 수 있습니다.
+
+빌드 도구와 중간 파일은 `.build-cache/`, 배포 파일은 `dist/`에 만들며 Git에서 제외합니다. 명시적 포함 목록(`src`, `public`, 고정된 JS 의존성, `package.json`, `package-lock.json`, `README.md`)만 앱에 넣으므로 문서·테스트·`.git`·`.env`·개발 산출물은 들어가지 않습니다. 네이티브 의존성이 발견되면 빌드를 중단합니다.
+
+포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-build-info.json`과 `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.

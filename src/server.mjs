@@ -116,7 +116,8 @@ function runWorker(data, signal, onProgress = () => {}) {
   });
 }
 
-export function createServer() {
+// `lifecycle` is passed only by the packaged app (src/portable.mjs).
+export function createServer({ lifecycle } = {}) {
   let busy = false;
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -133,7 +134,18 @@ export function createServer() {
       const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
       if (!hosts.includes(req.headers.host)) throw new HttpError(403, '이 PC의 로컬 주소로 접속해 주세요.');
       const path = new URL(req.url, 'http://localhost').pathname;
-      if (req.method === 'GET' && assets.has(path)) {
+      const sameOrigin = !(req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) && req.headers['sec-fetch-site'] !== 'cross-site';
+      if (req.method === 'GET' && path === '/api/app') {
+        send(200, { portable: !!lifecycle });
+      } else if (req.method === 'GET' && path === '/api/session' && lifecycle) {
+        // An open app tab keeps this stream; the packaged app exits once none remain.
+        if (!sameOrigin) throw new HttpError(403, '앱 화면에서 요청해 주세요.');
+        res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
+        res.write('event: ready\ndata: {}\n\n'); lifecycle.attach(res);
+      } else if (req.method === 'POST' && path === '/api/exit' && lifecycle) {
+        if (req.headers['x-hwp-diff'] !== '1' || !sameOrigin) throw new HttpError(403, '앱 화면에서 요청해 주세요.');
+        res.once('finish', () => setImmediate(lifecycle.stop)); send(200, { stopped: true });
+      } else if (req.method === 'GET' && assets.has(path)) {
         const [file, mime] = assets.get(path);
         const bytes = await readFile(new URL(`../public/${file}`, import.meta.url));
         res.writeHead(200, { 'Content-Type': mime });

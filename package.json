@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node src/server.mjs",
     "test": "node --test",
-    "samples": "node scripts/create-samples.mjs"
+    "samples": "node scripts/create-samples.mjs",
+    "build:win": "node scripts/build-windows-exe.mjs",
+    "build:mac": "node scripts/build-mac-dmg.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",

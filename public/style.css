@@ -665,3 +665,6 @@ html { scrollbar-gutter:stable; }
 .diff-heading .type-badge + .type-badge.moved { margin-left:-8px; }
 .move-note { margin:0; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--blue-tint); color:var(--blue); font-size:14px; }
 #selected-change-detail .move-note { padding:4px 12px; font-size:13px; }
+
+/* Packaged app only: lets the user stop the local program. */
+.topbar .exit-app { margin-left:auto; }
