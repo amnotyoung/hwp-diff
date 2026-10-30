@@ -6,6 +6,7 @@ import { compareDocuments } from '../src/engine.mjs';
 import { previewDocument } from '../src/preview.mjs';
 import { locateChanges, friendlyWarnings } from '../src/preview-locations.mjs';
 import { previewTargets, fileLabel } from '../public/report.js';
+import { previewNotice } from '../public/view-layout.js';
 import { reviewSamples } from '../scripts/create-review-samples.mjs';
 
 test('sample preview maps paragraph edits and only the three changed table cells', async () => {
@@ -120,4 +121,28 @@ test('review regression files: five modifications, two excluded images, one late
   const located = preview.locations.find(l => l.id === table.id);
   assert.equal(located.status, 'cells'); assert.equal(located.boxes.length, 1);
   assert.equal(preview.page, located.boxes[0].page); assert.ok(preview.page > 1);
+});
+
+test('picture-heavy documents locate changes without pictures and show an oversized page without them', async () => {
+  const calls = [];
+  const page = n => `<svg xmlns="http://www.w3.org/2000/svg"><g data-kordoc-id="p${n}"><text>${n}쪽 변경 문구입니다</text></g></svg>`;
+  const scene = { format: 'hwp', warnings: [], pages: [1, 2].map(n => ({ page: n, width: 595, height: 842 })), regions: [1, 2].map(n => ({ id: `p${n}`, type: 'paragraph', page: n, regions: [{ page: n, x: 50, y: 50, width: 300, height: 20 }] })) };
+  const render = async (bytes, options) => {
+    calls.push(options);
+    const pages = options.pages ?? [1, 2];
+    // A page of uncompressed photos: 17MB of base64 picture data when pictures are kept.
+    const picture = options.maxImageBytes > 1 ? `<image href="data:image/bmp;base64,${'A'.repeat(17 * 1024 * 1024)}"/>` : '';
+    return { scene: { ...scene, warnings: options.maxImageBytes > 1 ? [] : ['이미지 BIN0001.bmp 4.0MB — 한도 초과로 생략'] }, pageSvgs: new Map(pages.map(n => [n, page(n).replace('</svg>', `${picture}</svg>`)])) };
+  };
+  const target = { id: 7, type: 'modified', block: { text: '2쪽 변경 문구입니다' }, cells: [], textAnchors: [] };
+  const data = await previewDocument({ bytes: new Uint8Array() }, 1, { targets: [target], focusId: 7, jump: true }, render);
+  assert.equal(calls[0].maxImageBytes, 1, 'locating changes never renders pictures');
+  assert.equal(calls[0].pages, undefined);
+  assert.equal(data.page, 2);
+  assert.deepEqual(calls.slice(1).map(c => [c.pages, c.maxImageBytes > 1]), [[[2], true], [[2], false]]);
+  assert.equal(data.rendering.imagesOmitted, true);
+  assert.match(data.warnings[0], /그림 용량이 커서 글과 표만 표시/);
+  assert.ok(!data.warnings.some(w => /한도 초과/.test(w)));
+  assert.equal(data.locations.find(l => l.id === 7).boxes[0].page, 2);
+  assert.match(previewNotice(data, null).title, /그림은 표시하지 않았습니다/);
 });

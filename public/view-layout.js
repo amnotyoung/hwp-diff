@@ -57,6 +57,10 @@ export function previewNotice(data, location) {
     title: '변경된 칸을 정확히 찾지 못했습니다.',
     message: '표의 시작 위치를 표시했습니다. 다음 쪽도 확인하세요.',
   };
+  if (data?.rendering?.imagesOmitted) return {
+    title: '이 쪽의 그림은 표시하지 않았습니다.',
+    message: '그림 용량이 커서 글과 표만 표시했습니다. 그림은 원본 파일에서 확인하세요.',
+  };
   const warnings = (data?.warnings ?? []).join(' ');
   if (/수식/.test(warnings)) return { title: '일부 수식이 보이지 않을 수 있습니다.', message: '수식은 원본 파일에서 확인하세요.' };
   if (/글꼴|폰트/.test(warnings)) return { title: '글자 모양이 원본과 다를 수 있습니다.', message: '정확한 모양은 원본 파일에서 확인하세요.' };
