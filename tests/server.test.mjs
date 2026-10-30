@@ -24,7 +24,7 @@ function form(old = files.oldFile, fresh = files.newFile) {
 }
 
 test('UI assets and local health served with no-store and restrictive CSP', async () => {
-  for (const path of ['/', '/launch-guard.js', '/app.js', '/report.js', '/view-layout.js', '/style.css', '/api/health']) {
+  for (const path of ['/', '/launch-guard.js', '/app.js', '/report.js', '/view-layout.js', '/review-state.js', '/style.css', '/api/health']) {
     const res = await fetch(base + path); assert.equal(res.status, 200);
     assert.equal(res.headers.get('cache-control'), 'no-store');
     assert.match(res.headers.get('content-security-policy'), /default-src 'none'/);
@@ -74,6 +74,15 @@ test('preview API accepts memo identifiers, navigates to the memo and rejects in
   const data = await res.json(); assert.ok(data.page > 1); assert.equal(data.locations[0].status, 'memo');
   f.set('targets', JSON.stringify([{ id: 'memo-<script>', category: 'memo', type: 'added', memo: null }]));
   assert.equal((await post('/api/preview', f)).status, 400);
+});
+
+test('the all-items filter can explicitly locate an unchanged item without marking it as a change', async () => {
+  const result = await compareDocuments(files.oldFile, files.newFile), item = result.diffs.find(d => d.type === 'unchanged' && d.before?.text);
+  const f = new FormData(); f.append('file', new Blob([files.oldFile.bytes]), files.oldFile.name);
+  f.append('targets', JSON.stringify(previewTargets(result, 'old', item.id))); f.append('focusId', String(item.id)); f.append('jump', '1');
+  const response = await post('/api/preview', f); assert.equal(response.status, 200);
+  const location = (await response.json()).locations.find(l => l.id === item.id);
+  assert.equal(location.type, 'unchanged'); assert.ok(location.boxes.length > 0);
 });
 
 test('preview search returns matching paragraphs and binds cached images to the query', async () => {

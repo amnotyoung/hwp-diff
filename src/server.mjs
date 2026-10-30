@@ -15,6 +15,7 @@ const assets = new Map([
   ['/text-diff.js', ['text-diff.js', 'text/javascript; charset=utf-8']],
   ['/search.js', ['search.js', 'text/javascript; charset=utf-8']],
   ['/view-layout.js', ['view-layout.js', 'text/javascript; charset=utf-8']],
+  ['/review-state.js', ['review-state.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
@@ -71,7 +72,7 @@ async function previewRequest(req) {
     try { targets = JSON.parse(rawTargets); } catch { throw new HttpError(400, '변경 목록을 읽을 수 없습니다.'); }
     if (!Array.isArray(targets) || targets.length > 8000 || targets.some(t => !t || (t.category === 'memo' || t.category === 'format'
       ? typeof t.id !== 'string' || !(t.category === 'memo' ? /^memo-[1-9]\d*$/ : /^format-[1-9]\d*$/).test(t.id) || !['added', 'removed', 'modified', 'unchanged'].includes(t.type)
-      : !Number.isInteger(t.id) || !['added', 'removed', 'modified'].includes(t.type)))) throw new HttpError(400, '올바르지 않은 변경 목록입니다.');
+      : !Number.isInteger(t.id) || !['added', 'removed', 'modified', 'unchanged'].includes(t.type)))) throw new HttpError(400, '올바르지 않은 변경 목록입니다.');
   }
   const rawFocus = form.get('focusId');
   const search = form.get('search') ?? '';

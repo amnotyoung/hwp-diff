@@ -11,9 +11,9 @@ export function fileLabel(name, limit = 42) {
   return `<span class="file-name" title="${escapeHtml(name)}">${short}</span>${version ? `<span class="version-badge">${escapeHtml(version)}</span>` : ''}`;
 }
 
-export function previewTargets(result, side) {
+export function previewTargets(result, side, selectedId = null) {
   const old = side === 'old';
-  const body = result.diffs.filter(d => d.type !== 'unchanged').map(d => ({
+  const body = result.diffs.filter(d => d.type !== 'unchanged' || d.id === selectedId).map(d => ({
     id: d.id, type: d.type === 'structure' ? 'modified' : d.type, category: d.type === 'structure' ? 'structure' : 'content', block: old ? d.before : d.after,
     anchor: old ? d.oldAnchor : d.newAnchor,
     cells: d.cells.map(c => ({ row: c.row, col: c.col, anchors: changeAnchors(c.before?.text ?? '', c.after?.text ?? '', old ? 'before' : 'after') })),
@@ -208,9 +208,11 @@ export function renderChangedCells(diff, query = '') {
       if (`${old?.text ?? ''}\n${fresh?.text ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) cells.push({ row: r + 1, col: c + 1, before: old, after: fresh });
     }
   }
+  const segments = comparisonSegments(diff);
   return `<div class="changed-cells">${cells.map(cell => {
+    const segmentIndex = segments.findIndex(s => s.row === cell.row && s.col === cell.col);
     const header = diff.after?.table?.cells[0]?.[cell.col - 1]?.text || diff.before?.table?.cells[0]?.[cell.col - 1]?.text;
-    return `<section class="cell-change"><p class="cell-address">${cell.row}행 ${cell.col}열${header ? ` · ${escapeHtml(header.slice(0, 70))}` : ''}</p><div class="diff-columns">${['before', 'after'].map(side => {
+    return `<section class="cell-change"${segmentIndex >= 0 ? ` data-content-segment-index="${segmentIndex}"` : ''}><p class="cell-address">${cell.row}행 ${cell.col}열${header ? ` · ${escapeHtml(header.slice(0, 70))}` : ''}</p><div class="diff-columns">${['before', 'after'].map(side => {
       const value = cell[side], other = cell[side === 'before' ? 'after' : 'before'];
       const before = cell.before?.text ?? '', after = cell.after?.text ?? '';
       return `<section class="${side}"><span class="cell-side-label">${side === 'before' ? '구버전' : '신버전'}</span><div class="cell-value">${value ? focusedText(before, after, side, query) : '해당 셀 없음'}</div>${value && value.text.length > 160 ? `<details class="cell-context"><summary>셀 전체 내용 보기</summary><div class="context-text">${highlight(before, after)[side]}</div></details>` : ''}${value && other && (value.rowSpan !== other.rowSpan || value.colSpan !== other.colSpan) ? `<small>병합: ${value.rowSpan}행 × ${value.colSpan}열</small>` : ''}</section>`;

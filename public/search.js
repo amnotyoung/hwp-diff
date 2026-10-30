@@ -1,6 +1,6 @@
 import { findOccurrences } from './text-diff.js';
 
-const searchable = new Set(['cell-value', 'block-text', 'memo-text', 'cell-text', 'caption-text', 'footnote-text']);
+const searchable = new Set(['cell-value', 'block-text', 'memo-text', 'cell-text', 'caption-text', 'footnote-text', 'format-excerpt']);
 const classes = node => (node.getAttribute?.('class') ?? '').split(/\s+/);
 function visit(node, callback) {
   for (let child = node.firstChild; child; child = child.nextSibling) {
@@ -48,6 +48,7 @@ export function markSearch(root, query, startId = 0) {
   const doc = root.ownerDocument, oldMarks = [];
   visit(root, node => { if (classes(node).includes('search-hit')) oldMarks.push(node); });
   for (const mark of oldMarks) mark.parentNode.replaceChild(doc.createTextNode(mark.textContent), mark);
+  root.normalize();
   const hits = [];
   for (const match of searchMatches(root, query)) {
     const ranges = match.ranges.map(([start, end]) => {

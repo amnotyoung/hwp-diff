@@ -1,19 +1,19 @@
-import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, filterCounts, comparisonSegments } from './report.js';
+import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, comparisonSegments } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
 import { canvasWidth, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
+import { createReviewState, REVIEW_LABELS, allReviewItems, reviewItems, reviewFilters, reviewItemText, reviewPresence } from './review-state.js';
 
 const $ = selector => document.querySelector(selector);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
 let isDemo = false, previewPages = { old: 1, new: 1 }, previewCache = new Map();
-let selectedId = null, contentScroll = 0, contentSelectedId = null;
-let contentPositionSaved = false;
+let review = createReviewState();
+let contentRenderKey = null;
+const disclosureStates = new Map();
 let previewLocations = { old: [], new: [] }, previewData = { old: null, new: null };
-let selectedMemoId = null, memoScroll = 0, memoEntryId = null;
-let selectedFormatId = null, formatScroll = 0, formatEntryId = null;
 let previewOpened = false;
-let previewSelectionId = null, demoReversed = false;
+let demoReversed = false;
 const previewScrolls = new Map();
-let contentHits = [], previewHits = [], searchIndex = -1, searchTimer, previewWindowScroll = 0;
+let contentHits = [], previewHits = [], searchIndex = -1, searchTimer;
 let searchRevision = 0, searchComposing = false, searchPending = false;
 let contentSearchKey = '', contentOffsets = new Map(), visibleSearchHits = new Map();
 let previewHighlights = true;
@@ -31,7 +31,7 @@ function applyCompactScreen() {
 compactScreen.addEventListener('change', applyCompactScreen); applyCompactScreen();
 compactToolbar.addEventListener('change', applyCompactScreen);
 document.body.classList.add('preview-side-new');
-const activeFocusId = () => selectedFormatId ?? selectedMemoId ?? selectedId;
+const activeFocusId = () => review.selections[review.mode];
 function updateFiles() {
   for (const side of ['old', 'new']) {
     const file = files[side];
@@ -44,17 +44,14 @@ function updateFiles() {
 function showError(message = '') { $('#error').textContent = message; $('#error').hidden = !message; }
 function clearResults() {
   result = null; previewCache.clear(); previewPages = { old: 1, new: 1 };
-  selectedId = null; contentScroll = 0; document.body.classList.remove('has-results', 'edit-files', 'details-open');
-  contentPositionSaved = false;
-  selectedMemoId = null; memoScroll = 0; memoEntryId = null;
-  selectedFormatId = null; formatScroll = 0; formatEntryId = null;
+  review = createReviewState(); contentRenderKey = null; disclosureStates.clear(); filter = 'changes'; shown = 50; $('#search').value = '';
+  document.body.classList.remove('has-results', 'edit-files', 'details-open');
   previewOpened = false; previewScrolls.clear();
-  previewSelectionId = null;
   contentHits = []; previewHits = []; searchIndex = -1; clearTimeout(searchTimer);
   searchRevision++; searchComposing = false; searchPending = false;
   contentSearchKey = ''; contentOffsets.clear(); visibleSearchHits.clear();
   previewHighlights = true; $('#toggle-highlights').setAttribute('aria-pressed', 'true');
-  segmentSelections.clear(); segmentSides.clear(); $('#counterpart-dialog').close();
+  segmentSelections.clear(); segmentSides.clear(); detailRenderKey = null; detailScrolls.clear(); $('#counterpart-dialog').close();
   previewLocations = { old: [], new: [] }; previewData = { old: null, new: null };
   $('#results').hidden = true; $('#empty-state').hidden = false; $('#status').textContent = '';
   $('#selection-panel').hidden = true; $('#toggle-details').setAttribute('aria-expanded', 'false');
@@ -104,8 +101,8 @@ $('#reset').addEventListener('click', () => {
 });
 
 function setBusy(busy, preview = false) {
-  for (const id of ['demo', 'swap', 'swap-result', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change']) $(`#${id}`).disabled = busy;
-  document.querySelectorAll('[data-preview-diff], [data-preview-memo], [data-preview-format], #preview-memo, #preview-format').forEach(b => { b.disabled = busy; });
+  for (const id of ['view-content', 'view-formats', 'view-memos', 'view-list', 'demo', 'swap', 'swap-result', 'reset', 'old-file', 'new-file', 'view-preview', 'preview-jump', 'old-page', 'new-page', 'old-prev', 'old-next', 'new-prev', 'new-next', 'change-list', 'previous-change', 'next-change']) $(`#${id}`).disabled = busy;
+  document.querySelectorAll('[data-preview-diff], [data-preview-memo], [data-preview-format]').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-filter]').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-segment-step], #previous-segment, #next-segment').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
@@ -154,23 +151,11 @@ function showResults() {
   if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 항목 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 구간 ${formatCount}개` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
-  const counts = filterCounts(result), filterLabels = { changes: '변경만', all: '전체', added: '추가', removed: '삭제', modified: '수정', structure: '구조' };
-  document.querySelectorAll('[data-filter]').forEach(button => {
-    const key = button.dataset.filter, label = filterLabels[key];
-    button.innerHTML = `<span class="filter-label">${label}</span><span class="filter-count">${counts[key]}${['changes', 'all'].includes(key) ? '<span class="filter-unit">항목</span>' : ''}</span>`;
-    button.setAttribute('aria-label', `${label} ${counts[key]}개 항목`);
-    button.title = '문단·표를 한 항목으로 집계합니다.';
-  });
+  renderFilters();
   $('#view-memos').textContent = result.annotations?.available ? `메모 ${memoChanges}` : '메모 미검사';
   $('#memo-panel').innerHTML = annotationsHtml(result.annotations, true);
   $('#view-formats').textContent = result.formatting?.available ? `서식 ${formatCount}` : '서식 미검사';
   $('#format-panel').innerHTML = formattingHtml(result.formatting, true);
-  $('#preview-format').innerHTML = '<option value="">서식 변경 선택</option>' + formats.map((d, i) => `<option value="${escapeHtml(d.id)}">구간 ${i + 1} · ${escapeHtml(d.changes.map(c => c.label).join('·'))} · ${escapeHtml(d.text.slice(0, 40))}</option>`).join('');
-  $('#preview-format-control').hidden = !formatCount; $('#return-formats').hidden = !formatCount;
-  const memos = result.annotations?.diffs ?? [];
-  $('#preview-memo').innerHTML = '<option value="">메모 선택</option>' + memos.map((m, i) => `<option value="${escapeHtml(m.id)}">메모 ${i + 1} · ${labels[m.type]} · ${escapeHtml((m.after ?? m.before).text.slice(0, 45))}</option>`).join('');
-  $('#preview-memo-control').hidden = !memos.length;
-  $('#return-memos').hidden = !memos.length;
   $('#preview-jump').hidden = !result.diffs.some(d => d.type !== 'unchanged');
   $('#warnings').innerHTML = warningsHtml(result);
   $('#critical-notices').replaceChildren();
@@ -183,102 +168,175 @@ function showResults() {
     for (const suffix of ['column', 'preview-name', 'summary']) $(`#${side}-${suffix}`).innerHTML = `${suffix === 'summary' ? '' : `<span>${side === 'old' ? '구버전' : '신버전'} · </span>`}${fileLabel(result.documents[key].name)}`;
   }
   renderList();
-  if (!total && memoChanges) setView('memos');
-  else if (!total && formatCount) setView('formats');
+  if (!total && memoChanges) activateMode('memo');
+  else if (!total && formatCount) activateMode('format');
   $('#results').scrollIntoView({ block: 'start' });
   rememberContentPosition();
 }
-function filteredDiffs() {
-  if (!result) return [];
-  const query = $('#search').value.trim().toLocaleLowerCase();
-  return result.diffs.filter(d => (filter === 'all' || (filter === 'changes' ? d.type !== 'unchanged' : d.type === filter)) &&
-    (!query || `${blockText(d.before)}\n${blockText(d.after)}`.toLocaleLowerCase().includes(query)));
+function currentCondition(mode = review.mode) {
+  return mode === review.mode ? { filter, query: $('#search').value, shown } : review.conditions[mode];
+}
+function modeAvailable(mode = review.mode) {
+  return mode === 'content' || (mode === 'format' ? result?.formatting?.available : result?.annotations?.available) === true;
+}
+function panelFor(mode = review.mode) { return $(`#${mode === 'format' ? 'format' : mode === 'memo' ? 'memo' : 'content'}-panel`); }
+function selectedItem() { return allReviewItems(result, review.mode).find(item => item.id === activeFocusId()); }
+function filteredDiffs() { return result ? reviewItems(result, 'content', currentCondition('content')) : []; }
+function currentItems(navigation = false) {
+  return reviewItems(result, review.mode, currentCondition(), navigation && !(review.mode === 'content' && filter === 'all'));
+}
+function disclosureKey(node, root) {
+  const owner = node.closest('article[id]') ?? root;
+  const kind = node.tagName === 'DETAILS' ? 'details' : node.className;
+  return `${owner.id}:${kind}:${[...owner.querySelectorAll(node.tagName === 'DETAILS' ? 'details' : '.table-scroll,.cell-value,.context-text,.full-context>.diff-columns')].indexOf(node)}`;
+}
+function saveDisclosure(root, key) {
+  if (!key) return;
+  disclosureStates.set(key, new Map([...root.querySelectorAll('details,.table-scroll,.cell-value,.context-text,.full-context>.diff-columns')].map(node => [disclosureKey(node, root), { open: node.open, top: node.scrollTop, left: node.scrollLeft }])));
+}
+function restoreDisclosure(root, key) {
+  const saved = disclosureStates.get(key); if (!saved) return;
+  for (const node of root.querySelectorAll('details,.table-scroll,.cell-value,.context-text,.full-context>.diff-columns')) {
+    const state = saved.get(disclosureKey(node, root)); if (!state) continue;
+    if (node.tagName === 'DETAILS') node.open = state.open;
+    node.scrollTop = state.top; node.scrollLeft = state.left;
+  }
+}
+function rememberContentPosition() {
+  if (!result || review.view !== 'list') return;
+  review.listPositions[review.mode] = { top: window.scrollY, id: activeFocusId(), segment: segmentSelections.get(activeFocusId()) ?? 0 };
+  saveDisclosure(panelFor(), `${review.mode}:${JSON.stringify(currentCondition())}`);
+}
+function rememberMode() {
+  rememberContentPosition();
+  review.conditions[review.mode] = currentCondition();
+  review.searchPositions[review.mode][review.view] = searchIndex;
+}
+function restoreListPosition() {
+  const saved = review.listPositions[review.mode], id = activeFocusId();
+  restoreDisclosure(panelFor(), `${review.mode}:${JSON.stringify(currentCondition())}`);
+  if (saved.id === id && saved.segment === (segmentSelections.get(id) ?? 0)) window.scrollTo({ top: saved.top, behavior: 'instant' });
+  else if (id != null) {
+    const card = document.getElementById(review.mode === 'content' ? `change-${id}` : id), segment = segmentSelections.get(id) ?? 0;
+    for (let node = card?.parentElement; node && node !== panelFor(); node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true;
+    (card?.querySelector(`[data-segment-index="${segment}"],[data-content-segment-index="${segment}"]`) ?? card)?.scrollIntoView({ block: 'start' });
+  }
+  else window.scrollTo({ top: saved.top, behavior: 'instant' });
+}
+function renderFilters() {
+  const container = $('#filters');
+  container.setAttribute('aria-label', `${REVIEW_LABELS[review.mode]} 탐색 조건`);
+  if (!modeAvailable()) { container.innerHTML = `<span class="filter-unavailable">${REVIEW_LABELS[review.mode]} 미검사</span>`; return; }
+  container.innerHTML = reviewFilters(result, review.mode).map(({ value, label, count }) => `<button type="button" data-filter="${value}" class="${filter === value ? 'selected' : ''}" aria-pressed="${filter === value}" aria-label="${label} ${count}${review.mode === 'format' ? '구간' : '항목'}"><span class="filter-label">${label}</span><span class="filter-count">${count}${['changes', 'all'].includes(value) ? `<span class="filter-unit">${review.mode === 'format' ? '구간' : '항목'}</span>` : ''}</span></button>`).join('');
 }
 function renderList() {
   if (!result) return;
-  const diffs = filteredDiffs();
-  const key = JSON.stringify([filter, queryText()]);
-  if (contentSearchKey !== key) {
-    const template = document.createElement('template');
-    const indexed = buildSearchIndex(diffs, queryText(), diff => {
-      template.innerHTML = renderDiff(diff, result.documents, true, queryText());
-      return template.content;
-    });
-    contentHits = indexed.hits; contentOffsets = indexed.offsets; contentSearchKey = key;
-    if ($('#preview-panel').hidden) searchIndex = -1;
+  review.conditions[review.mode] = currentCondition();
+  if (review.mode !== 'content') {
+    const items = currentItems(), visible = new Set(items.map(d => d.id)), root = panelFor();
+    for (const card of root.querySelectorAll('.memo-card,.format-card')) card.hidden = !visible.has(card.id);
+    const unchanged = root.querySelector('.unchanged-memos');
+    if (unchanged) { unchanged.hidden = !items.some(d => d.type === 'unchanged'); if (queryText() && !unchanged.hidden) unchanged.open = true; }
+    let empty = root.querySelector('.filter-empty');
+    if (!empty) { empty = document.createElement('p'); empty.className = 'no-results filter-empty'; root.append(empty); }
+    empty.hidden = !!items.length || !allReviewItems(result, review.mode).length;
+    empty.textContent = `현재 조건에 맞는 ${REVIEW_LABELS[review.mode]} 변경이 없습니다.`;
+    for (const card of root.querySelectorAll('.memo-card,.format-card')) markSearch(card, queryText());
+  } else {
+    const diffs = filteredDiffs(), key = JSON.stringify([filter, queryText()]);
+    if (contentSearchKey !== key) {
+      const template = document.createElement('template');
+      const indexed = buildSearchIndex(diffs, queryText(), diff => { template.innerHTML = renderDiff(diff, result.documents, true, queryText()); return template.content; });
+      contentHits = indexed.hits; contentOffsets = indexed.offsets; contentSearchKey = key;
+      if (review.view === 'list') searchIndex = -1;
+    }
+    const renderKey = JSON.stringify([filter, queryText(), shown]);
+    if (contentRenderKey !== renderKey) {
+      saveDisclosure($('#content-panel'), `content-render:${contentRenderKey}`);
+      $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true, queryText())).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
+      contentRenderKey = renderKey;
+      restoreDisclosure($('#content-panel'), `content-render:${renderKey}`);
+      visibleSearchHits = new Map();
+      for (const card of $('#diff-list').querySelectorAll('[data-diff-id]')) {
+        const hits = markSearch(card, queryText(), contentOffsets.get(Number(card.dataset.diffId)) ?? 0).hits;
+        for (const hit of hits) visibleSearchHits.set(hit.id, hit.elements);
+      }
+    }
+    restoreSegments($('#diff-list'));
+    $('#load-more').hidden = diffs.length <= shown;
+    $('#load-more').textContent = `다음 50개 보기 (${Math.min(shown, diffs.length)} / ${diffs.length})`;
   }
-  $('#diff-list').innerHTML = diffs.slice(0, shown).map(d => renderDiff(d, result.documents, true, $('#search').value.trim())).join('') || '<div class="no-results">현재 조건에 해당하는 항목이 없습니다.</div>';
-  restoreSegments($('#diff-list'));
-  $('#load-more').hidden = diffs.length <= shown;
-  $('#load-more').textContent = `다음 50개 보기 (${Math.min(shown, diffs.length)} / ${diffs.length})`;
   document.querySelectorAll('[data-filter]').forEach(button => { const selected = button.dataset.filter === filter; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
-  const priorSelection = selectedId; updateNavigator();
-  if (!$('#preview-panel').hidden) {
-    showSelectedDetail(); for (const side of ['old', 'new']) drawOverlays(side);
-    // Filtering must never navigate away from, or reposition, the current preview.
-  }
-  visibleSearchHits = new Map();
-  for (const card of $('#diff-list').querySelectorAll('[data-diff-id]')) {
-    const hits = markSearch(card, queryText(), contentOffsets.get(Number(card.dataset.diffId)) ?? 0).hits;
-    for (const hit of hits) visibleSearchHits.set(hit.id, hit.elements);
-  }
-  if ($('#preview-panel').hidden) {
-    for (const el of visibleSearchHits.get(searchIndex) ?? []) el.classList.add('current-search-hit');
-    updateSearchControls();
-  }
+  updateNavigator();
+  if (review.view === 'preview') { showSelectedDetail(); for (const side of ['old', 'new']) drawOverlays(side); }
+  else if (review.mode === 'content') for (const el of visibleSearchHits.get(searchIndex) ?? []) el.classList.add('current-search-hit');
+  updateSearchControls(); updateToolbar();
 }
-
-function navigationContext() {
-  const preview = !$('#preview-panel').hidden;
-  if (!$('#memo-panel').hidden || preview && selectedMemoId) return { category: 'memo', items: (result?.annotations?.diffs ?? []).filter(d => d.type !== 'unchanged' || d.id === selectedMemoId), id: selectedMemoId };
-  if (!$('#format-panel').hidden || preview && selectedFormatId) return { category: 'format', items: result?.formatting?.diffs ?? [], id: selectedFormatId };
-  return { category: 'content', items: filteredDiffs().filter(d => d.type !== 'unchanged'), id: selectedId };
+function navigationContext() { return { category: review.mode, items: currentItems(true), id: activeFocusId() }; }
+function currentWindows() {
+  const windows = {};
+  if (review.view !== 'preview') return windows;
+  for (const side of ['old', 'new']) {
+    const data = previewData[side], canvas = $(`#${side}-canvas`), viewport = $(`#${side}-viewport`);
+    if (!data || canvas.hidden || !viewport.clientWidth) continue;
+    const c = canvas.getBoundingClientRect(), v = viewport.getBoundingClientRect(), scale = c.width / data.width;
+    if (scale > 0) windows[side] = { x: (v.left - c.left) / scale, y: (v.top - c.top) / scale, width: v.width / scale, height: v.height / scale };
+  }
+  return windows;
+}
+function presence(id, selected = false) {
+  return reviewPresence(id, { old: previewData.old?.locations, new: previewData.new?.locations }, previewPages, selected ? currentWindows() : {}, selected && review.mode === 'content' ? segmentSelections.get(id) ?? 0 : null);
+}
+function emptyReviewMessage() {
+  const mode = REVIEW_LABELS[review.mode];
+  if (!modeAvailable()) return `${mode}은 검사하지 못했습니다. 목록에서 안내를 확인하세요.`;
+  const items = currentItems(true), total = reviewItems(result, review.mode, { filter: review.mode === 'format' || filter === 'all' ? 'all' : 'changes', query: '' }, review.mode === 'content' && filter !== 'all').length;
+  if (!items.length) return total ? `현재 조건에 맞는 ${mode} 변경이 없습니다.` : `문서 전체에 ${mode} 변경이 없습니다.`;
+  if (!previewOpened) return `${mode} 변경 ${items.length}개 중 항목을 선택하세요.`;
+  const onPage = items.filter(item => presence(item.id).onPage).length, unknown = items.filter(item => presence(item.id).unresolved || presence(item.id).pending).length;
+  return `${onPage ? `이 쪽에서 확인한 ${mode} 변경 ${onPage}개` : `이 쪽에서 확인한 ${mode} 변경은 없습니다`}. 전체 목록에는 ${items.length}개가 있습니다.${unknown ? ` ${unknown}개는 위치 미확인입니다.` : ''} 항목을 선택하면 이동합니다.`;
 }
 function updateNavigator() {
-  const { category, items: changes, id } = navigationContext();
-  const active = changes.some(d => d.id === id) ? id : changes[0]?.id ?? null;
-  if (category === 'memo') selectedMemoId = active;
-  else if (category === 'format') selectedFormatId = active;
-  else selectedId = active;
-  const position = changes.findIndex(d => d.id === active);
-  const scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : '내용 변경';
+  const { category, items, id } = navigationContext();
+  const active = items.some(d => d.id === id) ? id : null;
+  review.selections[category] = active;
+  const position = items.findIndex(d => d.id === active), scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : filter === 'all' ? '내용 항목' : '내용 변경';
   const description = d => category === 'format' ? `${d.changes.map(c => c.label).join('·')} · ${d.text}` : category === 'memo' ? `${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
-  $('#change-list').innerHTML = changes.map((d, i) => `<option value="${escapeHtml(d.id)}">${scope} ${i + 1}/${changes.length} · ${escapeHtml(description(d).slice(0, 90))}</option>`).join('') || `<option value="">${scope} 없음</option>`;
+  const placeholder = !modeAvailable() ? `${REVIEW_LABELS[category]} 미검사` : items.length ? `${scope} ${items.length}개 · 항목 선택` : `${scope} 없음`;
+  $('#change-list').innerHTML = `<option value=""${items.length ? ' disabled' : ''}>${placeholder}</option>` + items.map((d, i) => {
+    const p = presence(d.id, d.id === active), flag = review.view === 'preview' && d.id === active && p.offscreen ? '현재 화면 밖의 선택 · ' : previewOpened && p.unresolved ? '위치 미확인 · ' : '';
+    return `<option value="${escapeHtml(d.id)}">${flag}${scope} ${i + 1}/${items.length} · ${escapeHtml(description(d).slice(0, 75))}</option>`;
+  }).join('');
   $('#change-list').value = active ?? '';
-  $('#change-position').textContent = changes.length ? `${scope} ${position + 1}/${changes.length}` : `${scope} 없음`;
-  $('#change-list').setAttribute('aria-label', `${scope}${category === 'content' ? ' 항목' : category === 'format' ? ' 구간' : ''} 선택`);
-  $('#change-list').title = changes[position] ? description(changes[position]).slice(0, 150) : '해당 변경 없음';
-  $('#change-list').disabled = !!controller || !changes.length;
+  $('#change-position').textContent = active != null ? `${scope} ${position + 1}/${items.length}` : placeholder;
+  $('#change-list').setAttribute('aria-label', `${scope} 선택`);
+  $('#change-list').title = active != null ? $('#change-list').selectedOptions[0].textContent : emptyReviewMessage();
+  $('#change-list').disabled = !!controller || !items.length;
   $('#previous-change').disabled = !!controller || position <= 0;
-  $('#next-change').disabled = !!controller || position < 0 || position >= changes.length - 1;
-  document.querySelectorAll('[data-diff-id]').forEach(el => el.classList.toggle('selected-change', Number(el.dataset.diffId) === selectedId));
+  $('#next-change').disabled = !!controller || !items.length || position >= items.length - 1;
+  document.querySelectorAll('[data-diff-id]').forEach(el => el.classList.toggle('selected-change', category === 'content' && Number(el.dataset.diffId) === active));
   document.querySelectorAll('#memo-panel .memo-card, #format-panel .format-card').forEach(el => el.classList.toggle('selected-change', el.id === active));
+  restoreSegments($('#diff-list'));
 }
 function selectNavigation(id) {
-  if (controller) return;
-  const { category } = navigationContext();
-  if (category === 'content') return selectChange(id);
-  if (!$('#preview-panel').hidden) return category === 'memo' ? jumpToMemo(id) : jumpToFormat(id);
-  if (category === 'memo') selectedMemoId = id; else selectedFormatId = id;
-  updateNavigator();
-  $(`#${id}`)?.scrollIntoView({ block: 'start' });
+  if (controller || !id) return;
+  if (review.mode === 'content') return selectChange(id);
+  if (review.view === 'preview') return review.mode === 'memo' ? jumpToMemo(id) : jumpToFormat(id);
+  review.selections[review.mode] = id; updateNavigator();
+  const card = document.getElementById(id); for (let node = card?.parentElement; node && node !== panelFor(); node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true;
+  card?.scrollIntoView({ block: 'start' }); rememberContentPosition();
 }
 function selectChange(id) {
   if (controller) return;
-  selectedId = Number(id); selectedMemoId = null; selectedFormatId = null;
-  $('#preview-memo').value = ''; $('#preview-format').value = ''; updateNavigator();
-  if (!$('#preview-panel').hidden) return jumpToDiff(selectedId);
-  const index = filteredDiffs().findIndex(d => d.id === selectedId);
+  review.selections.content = Number(id); updateNavigator();
+  if (!$('#preview-panel').hidden) return jumpToDiff(review.selections.content);
+  const index = filteredDiffs().findIndex(d => d.id === review.selections.content);
   if (index >= shown) { shown = index + 1; renderList(); }
-  const card = $(`#change-${selectedId}`);
+  const card = $(`#change-${review.selections.content}`);
   card?.scrollIntoView({ block: 'start' }); card?.focus({ preventScroll: true });
   rememberContentPosition();
 }
 
-function rememberContentPosition() {
-  if (!result || $('#content-panel').hidden) return;
-  contentScroll = window.scrollY; contentSelectedId = selectedId; contentPositionSaved = true;
-}
 // Remember deliberate reading movement, not focus/scrollIntoView side effects of tab controls.
 for (const event of ['wheel', 'touchmove']) window.addEventListener(event, () => requestAnimationFrame(rememberContentPosition), { passive: true });
 window.addEventListener('keydown', e => { if (['PageDown', 'PageUp', 'Home', 'End', 'ArrowDown', 'ArrowUp', ' '].includes(e.key)) requestAnimationFrame(rememberContentPosition); });
@@ -298,8 +356,7 @@ $('#edit-files').addEventListener('click', () => {
 });
 $('#filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button || button.disabled || controller) return;
-  selectedMemoId = null; selectedFormatId = null; $('#preview-memo').value = ''; $('#preview-format').value = '';
-  filter = button.dataset.filter; shown = 50; renderList(); updateToolbar();
+  rememberContentPosition(); filter = button.dataset.filter; shown = 50; searchIndex = -1; renderList(); updateToolbar();
 });
 $('#search').addEventListener('input', event => {
   searchRevision++; searchPending = true; clearTimeout(searchTimer); updateSearchControls();
@@ -316,45 +373,64 @@ function download(contents, type, extension) {
 $('#export-html').addEventListener('click', () => { if (result) download(exportHtml(result), 'text/html;charset=utf-8', 'html'); });
 $('#export-json').addEventListener('click', () => { if (result) download(JSON.stringify(result, null, 2), 'application/json;charset=utf-8', 'json'); });
 
-function setView(preview) {
-  const memoView = preview === 'memos', formatView = preview === 'formats'; preview = preview === true;
-  const wasPreview = !$('#preview-panel').hidden;
-  if (wasPreview && !preview) { previewWindowScroll = window.scrollY; for (const side of ['old', 'new']) savePreviewScroll(side); }
-  if (preview && !wasPreview && !contentPositionSaved) rememberContentPosition();
+function paintView() {
+  const preview = review.view === 'preview';
   document.body.classList.toggle('preview-mode', preview);
-  $('#content-panel').hidden = preview || memoView || formatView; $('#preview-panel').hidden = !preview; $('#memo-panel').hidden = !memoView; $('#format-panel').hidden = !formatView;
-  if (memoView) selectedFormatId = null;
-  if (formatView) selectedMemoId = null;
-  if (result) updateNavigator();
-  updateToolbar();
-  for (const [id, active] of [['view-content', !preview && !memoView && !formatView], ['view-preview', preview], ['view-memos', memoView], ['view-formats', formatView]]) {
+  $('#preview-panel').hidden = !preview;
+  for (const mode of ['content', 'format', 'memo']) panelFor(mode).hidden = preview || review.mode !== mode;
+  for (const [id, mode] of [['view-content', 'content'], ['view-formats', 'format'], ['view-memos', 'memo']]) {
+    $(`#${id}`).classList.toggle('selected', review.mode === mode); $(`#${id}`).setAttribute('aria-pressed', String(review.mode === mode));
+  }
+  for (const [id, active] of [['view-list', !preview], ['view-preview', preview]]) {
     $(`#${id}`).classList.toggle('selected', active); $(`#${id}`).setAttribute('aria-pressed', String(active));
   }
-  if (!preview && !memoView && !formatView && wasPreview && result) requestAnimationFrame(() => {
-    if (selectedId === contentSelectedId) window.scrollTo({ top: contentScroll });
-    else $(`#change-${selectedId}`)?.scrollIntoView({ block: 'start' });
-  });
-  if (memoView && wasPreview && result) requestAnimationFrame(() => {
-    if (memoEntryId === selectedMemoId) window.scrollTo({ top: memoScroll });
-    else $(`#${selectedMemoId}`)?.scrollIntoView({ block: 'start' });
-  });
-  if (formatView && wasPreview && result) requestAnimationFrame(() => {
-    if (formatEntryId === selectedFormatId) window.scrollTo({ top: formatScroll });
-    else $(`#${selectedFormatId}`)?.scrollIntoView({ block: 'start' });
-  });
-  updateSearchControls();
-  if (preview) { window.scrollTo({ top: 0, behavior: 'instant' }); requestAnimationFrame(fitPreviewPages); }
+  updateToolbar();
+}
+function hideSearchPopover() { $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false'); }
+function setView(preview) {
+  const next = preview ? 'preview' : 'list';
+  if (next === review.view) { paintView(); return; }
+  rememberMode(); hideSearchPopover();
+  if (review.view === 'preview') for (const side of ['old', 'new']) savePreviewScroll(side);
+  review.view = next; searchIndex = review.searchPositions[review.mode][next];
+  if (!preview && review.mode === 'content') {
+    const index = filteredDiffs().findIndex(d => d.id === activeFocusId());
+    if (index >= shown) shown = Math.ceil((index + 1) / 50) * 50;
+  }
+  paintView(); renderList();
+  if (preview) {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    requestAnimationFrame(() => { fitPreviewPages(); for (const side of ['old', 'new']) restorePreviewScroll(side); updateVisibleSelection(); updateNavigator(); });
+  } else requestAnimationFrame(restoreListPosition);
+}
+function activateMode(mode, selection) {
+  if (mode !== review.mode) {
+    rememberMode(); hideSearchPopover(); clearTimeout(searchTimer); searchRevision++; searchPending = false;
+    review.mode = mode;
+    const saved = review.conditions[mode]; filter = saved.filter; shown = saved.shown; $('#search').value = saved.query;
+    searchIndex = review.searchPositions[mode][review.view];
+  }
+  if (selection != null) {
+    review.selections[mode] = selection;
+    if (!currentItems().some(item => item.id === selection)) {
+      filter = 'all'; $('#search').value = ''; searchRevision++; searchPending = false;
+      review.conditions[mode] = currentCondition();
+    }
+  }
+  paintView(); renderFilters(); renderList();
+}
+async function switchMode(mode) {
+  if (!result || controller || mode === review.mode) return;
+  const query = queryText();
+  activateMode(mode);
+  if (review.view === 'list') requestAnimationFrame(restoreListPosition);
+  else if (query !== queryText()) await showPreview({ ...previewPages });
+  else { updateVisibleSelection(); updateNavigator(); }
 }
 function updateToolbar() {
-  const preview = !$('#preview-panel').hidden;
-  const content = preview || !$('#content-panel').hidden;
-  document.querySelectorAll('[data-filter]').forEach(el => { el.disabled = !!controller || !content; });
-  // Keep the active input enabled during preview requests; disabling it blurs it.
-  for (const id of ['search', 'toggle-search']) $(`#${id}`).disabled = !content || !result;
-  if (!content) {
-    $('#search-panel').hidden = true; $('#toggle-search').setAttribute('aria-expanded', 'false');
-    clearSearch();
-  }
+  const preview = review.view === 'preview';
+  document.querySelectorAll('[data-filter]').forEach(el => { el.disabled = !!controller || !modeAvailable(); });
+  for (const id of ['search', 'toggle-search']) $(`#${id}`).disabled = !result || !modeAvailable();
   $('#preview-zoom').disabled = !preview;
   $('#toggle-details').disabled = !preview;
   $('#toggle-highlights').disabled = !preview;
@@ -380,10 +456,11 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
   previousInfo.open = false; previousInfo.hidden = true;
   try {
     let data = previewCache.get(key);
+    if (focusId != null && data && !data.locations?.some(location => location.id === focusId)) data = null;
     if (!data) {
       const form = new FormData(); form.append('page', String(page));
       form.append('search', searchQuery);
-      form.append('targets', JSON.stringify(previewTargets(result, side)));
+      form.append('targets', JSON.stringify(previewTargets(result, side, focusId)));
       if (focusId) form.append('focusId', String(focusId));
       if (jump) form.append('jump', '1');
       if (isDemo) { form.append('demo', '1'); form.append('side', side); if (demoReversed) form.append('reverse', '1'); }
@@ -429,18 +506,15 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
   } finally { controller = null; setBusy(false); }
   if (requestedQuery !== queryText()) return;
   previewOpened = true;
-  previewSelectionId = requestedFocus;
   previewHits = ['new', 'old'].flatMap(side => (previewData[side]?.searchQuery === queryText() ? previewData[side]?.searchMatches ?? [] : []).map(hit => ({ ...hit, side })));
   updateSearchControls();
+  updateNavigator(); showSelectedDetail();
 }
 function jumpToDiff(id) {
   if (controller) return;
   const diff = result?.diffs.find(d => d.id === Number(id));
   if (!diff) return showPreview();
-  selectedMemoId = null; $('#preview-memo').value = '';
-  selectedFormatId = null; $('#preview-format').value = '';
-  if (!$('#content-panel').hidden && selectedId !== diff.id) { selectedId = diff.id; rememberContentPosition(); }
-  selectedId = diff.id; updateNavigator();
+  activateMode('content', diff.id); rememberContentPosition();
   const pages = {};
   for (const [side, docKey, pageKey] of [['old', 'before', 'oldPage'], ['new', 'after', 'newPage']]) {
     if (result.documents[docKey].pageMode === 'layout' && diff[pageKey]) pages[side] = diff[pageKey];
@@ -450,48 +524,24 @@ function jumpToDiff(id) {
 }
 function jumpToMemo(id) {
   if (!result || controller || !result.annotations?.diffs.some(m => m.id === id)) return;
-  if (!$('#memo-panel').hidden) { memoScroll = window.scrollY; memoEntryId = id; }
-  selectedMemoId = id; $('#preview-memo').value = id;
-  selectedFormatId = null; $('#preview-format').value = '';
+  activateMode('memo', id); rememberContentPosition();
   showPreview({ ...previewPages }, '보라색은 메모가 연결된 문단입니다. 선택한 메모로 이동하며, 일부만 확인된 범위는 문서 아래에 안내합니다.', true);
 }
 function jumpToFormat(id) {
   if (!result || controller || !result.formatting?.diffs?.some(d => d.id === id)) return;
-  if (!$('#format-panel').hidden) { formatScroll = window.scrollY; formatEntryId = id; }
-  selectedFormatId = id; $('#preview-format').value = id;
-  selectedMemoId = null; $('#preview-memo').value = '';
+  activateMode('format', id); rememberContentPosition();
   showPreview({ ...previewPages }, '파란색은 서식 변경 문단입니다. 정확한 변경 값은 옆 패널에서 확인하세요.', true);
 }
-$('#view-content').addEventListener('click', () => { selectedMemoId = null; selectedFormatId = null; setView(false); });
-$('#view-memos').addEventListener('click', () => setView('memos'));
-$('#view-formats').addEventListener('click', () => setView('formats'));
+for (const [id, mode] of [['view-content', 'content'], ['view-formats', 'format'], ['view-memos', 'memo']]) $(`#${id}`).addEventListener('click', () => switchMode(mode));
+$('#view-list').addEventListener('click', () => { if (!controller) setView(false); });
 $('#view-preview').addEventListener('click', async () => {
-  if (previewOpened) {
-    if (activeFocusId() !== previewSelectionId) {
-      if (selectedFormatId) return jumpToFormat(selectedFormatId);
-      if (selectedMemoId) return jumpToMemo(selectedMemoId);
-      if (selectedId) return jumpToDiff(selectedId);
-    }
-    setView(true); showSelectedDetail();
-    if (['old', 'new'].some(side => previewData[side]?.searchQuery !== queryText())) await showPreview();
-    else { fitPreviewPages(); for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); } }
-    requestAnimationFrame(() => window.scrollTo({ top: previewWindowScroll }));
-    updateSearchControls();
-    return;
-  }
-  const firstMemo = result?.annotations?.diffs?.[0]?.id;
-  const firstFormat = result?.formatting?.diffs?.[0]?.id;
-  if (selectedFormatId || (!$('#format-panel').hidden && firstFormat)) jumpToFormat(selectedFormatId ?? firstFormat);
-  else if (selectedMemoId || (!$('#memo-panel').hidden && firstMemo) || (!selectedId && firstMemo)) jumpToMemo(selectedMemoId ?? firstMemo);
-  else if (!selectedId && firstFormat) jumpToFormat(firstFormat);
-  else selectedId ? jumpToDiff(selectedId) : showPreview();
+  if (controller || !result) return;
+  setView(true);
+  if (!previewOpened || ['old', 'new'].some(side => previewData[side]?.searchQuery !== queryText())) await showPreview({ ...previewPages });
+  else { showSelectedDetail(); fitPreviewPages(); for (const side of ['old', 'new']) { drawOverlays(side); restorePreviewScroll(side); } updateVisibleSelection(); updateNavigator(); }
 });
-$('#preview-memo').addEventListener('change', event => jumpToMemo(event.target.value));
-$('#return-memos').addEventListener('click', () => setView('memos'));
 $('#memo-panel').addEventListener('click', event => { const button = event.target.closest('[data-preview-memo]'); if (button) jumpToMemo(button.dataset.previewMemo); });
 $('#format-panel').addEventListener('click', event => { const button = event.target.closest('[data-preview-format]'); if (button) jumpToFormat(button.dataset.previewFormat); });
-$('#preview-format').addEventListener('change', event => jumpToFormat(event.target.value));
-$('#return-formats').addEventListener('click', () => setView('formats'));
 $('#preview-jump').addEventListener('click', async () => {
   if ($('#preview-jump').dataset.retry === 'true') {
     previewCache.clear(); previewLocations = { old: [], new: [] };
@@ -499,11 +549,8 @@ $('#preview-jump').addEventListener('click', async () => {
   }
   await moveToActiveSegment();
 });
-function returnToComparison() {
-  const id = activeFocusId(), view = selectedFormatId ? 'formats' : selectedMemoId ? 'memos' : false;
-  setView(view);
-  if (id) selectNavigation(id);
-}
+$('#preview-go-selection').addEventListener('click', () => $('#preview-jump').click());
+function returnToComparison() { setView(false); }
 $('#return-comparison').addEventListener('click', returnToComparison);
 $('#diff-list').addEventListener('click', event => { const button = event.target.closest('[data-preview-diff]'); if (button) jumpToDiff(button.dataset.previewDiff); });
 $('#preview-zoom').addEventListener('change', event => { for (const side of ['old', 'new']) $(`#${side}-viewport`).dataset.zoom = event.target.value; fitPreviewPages(); });
@@ -527,54 +574,59 @@ for (const side of ['old', 'new']) {
   $(`#${side}-next`).addEventListener('click', () => showPreview({ [side]: previewPages[side] + 1 }));
 }
 
+let detailRenderKey = null;
+const detailScrolls = new Map();
 function showSelectedDetail() {
-  updateVisibleSelection();
-  const summaryDiff = selectedFormatId ? result?.formatting?.diffs.find(d => d.id === selectedFormatId) : selectedMemoId ? result?.annotations?.diffs.find(d => d.id === selectedMemoId) : result?.diffs.find(d => d.id === selectedId);
-  $('#preview-explanation-text').innerHTML = previewExplanation(summaryDiff, selectedFormatId ? 'format' : selectedMemoId ? 'memo' : 'content', segmentSelections.get(selectedId) ?? 0);
-  $('#expand-explanation').disabled = !summaryDiff;
+  const item = selectedItem(), id = activeFocusId(), segment = review.mode === 'content' ? segmentSelections.get(id) ?? 0 : 0;
+  $('#preview-explanation-text').innerHTML = item ? previewExplanation(item, review.mode, segment) : `<p>${escapeHtml(emptyReviewMessage())}</p>`;
+  $('#expand-explanation').disabled = !item;
   updateSegmentControls();
-  if (selectedFormatId) {
-    const formats = result?.formatting?.diffs ?? [], index = formats.findIndex(d => d.id === selectedFormatId);
-    $('#selection-title').textContent = `서식 변경 구간 ${index + 1}`;
-    $('#selected-change-detail').innerHTML = index >= 0 ? formatCardHtml(formats[index], index + 1, false, 'selected-') : '';
-    return;
+  const key = `${review.mode}:${id}:${segment}:${item ? '' : emptyReviewMessage()}`;
+  if (detailRenderKey !== key) {
+    if (detailRenderKey) { saveDisclosure($('#selected-change-detail'), `detail:${detailRenderKey}`); detailScrolls.set(detailRenderKey, $('#selection-panel').scrollTop); }
+    if (!item) {
+      $('#selection-title').textContent = `${REVIEW_LABELS[review.mode]} 항목 선택`;
+      $('#selected-change-detail').innerHTML = `<p class="review-empty">${escapeHtml(emptyReviewMessage())}</p>`;
+    } else if (review.mode === 'format') {
+      const index = result.formatting.diffs.indexOf(item);
+      $('#selection-title').textContent = `서식 변경 구간 ${index + 1}`;
+      $('#selected-change-detail').innerHTML = formatCardHtml(item, index + 1, false, 'selected-');
+    } else if (review.mode === 'memo') {
+      const index = result.annotations.diffs.indexOf(item);
+      $('#selection-title').textContent = `메모 ${index + 1}`;
+      $('#selected-change-detail').innerHTML = memoCardHtml(item, index + 1, false, 'selected-');
+    } else {
+      $('#selection-title').textContent = `${labels[item.type]} · 항목 ${item.id}`;
+      $('#selected-change-detail').innerHTML = renderDiff(item, result.documents, false, '', true).replace(`id="change-${item.id}"`, `id="selected-${item.id}"`);
+    }
+    detailRenderKey = key; restoreDisclosure($('#selected-change-detail'), `detail:${key}`);
+    requestAnimationFrame(() => { $('#selection-panel').scrollTop = detailScrolls.get(key) ?? 0; });
   }
-  if (selectedMemoId) {
-    const memos = result?.annotations?.diffs ?? [], index = memos.findIndex(m => m.id === selectedMemoId);
-    $('#selection-title').textContent = `선택한 메모 ${index + 1}`;
-    $('#selected-change-detail').innerHTML = index >= 0 ? memoCardHtml(memos[index], index + 1, false, 'selected-') : '';
-    return;
-  }
-  const diff = result?.diffs.find(d => d.id === selectedId);
-  $('#selection-title').textContent = diff ? `${labels[diff.type]} · 항목 ${diff.id}` : '선택한 변경';
-  $('#selected-change-detail').innerHTML = diff
-    ? renderDiff(diff, result.documents, false, '', true).replace(`id="change-${diff.id}"`, `id="selected-${diff.id}"`)
-    : '<p>변경 항목을 선택하면 구버전·신버전 문구가 여기에 표시됩니다.</p>';
-  restoreSegments($('#selected-change-detail'));
+  restoreSegments($('#selected-change-detail')); updateVisibleSelection();
 }
 function focusLocation(side) {
   const location = previewData[side]?.locations.find(l => l.id === activeFocusId());
-  if (!location || selectedMemoId || selectedFormatId || !location.segments?.length) return location;
-  const segment = location.segments.find(s => s.index === (segmentSelections.get(selectedId) ?? 0));
+  if (!location || review.mode !== 'content' || !location.segments?.length) return location;
+  const segment = location.segments.find(s => s.index === (segmentSelections.get(review.selections.content) ?? 0));
   if (!segment) return location;
   return { ...location, boxes: segment.boxes, status: segment.boxes.length ? location.status : 'unresolved',
     message: segment.boxes.length ? location.message : '현재 구간의 원본 위치를 확인하지 못했습니다. 내용 비교와 원본 파일에서 확인해 주세요.' };
 }
 function updatePreviewNotice(side) {
   const data = previewData[side]; if (!data) return;
-  const notice = previewNotice(data, focusLocation(side));
+  const notice = previewNotice(data, null);
   const button = $(`#${side}-render-notice`), info = $(`#${side}-preview-warnings`).closest('.document-info');
   button.hidden = !notice.title; info.hidden = !notice.title;
   button.textContent = notice.title ? `${notice.title} ⓘ` : '';
   button.removeAttribute('title');
-  const html = notice.title ? `<p>${escapeHtml(notice.title)}</p><p>${escapeHtml(notice.message)}</p><button type="button" class="button secondary" data-return-comparison>내용 비교 보기</button>` : '';
+  const html = notice.title ? `<p>${escapeHtml(notice.title)}</p><p>${escapeHtml(notice.message)}</p><button type="button" class="button secondary" data-return-comparison>목록에서 확인</button>` : '';
   const warnings = $(`#${side}-preview-warnings`), key = JSON.stringify(notice);
   if (warnings.dataset.noticeKey !== key) { warnings.innerHTML = html; warnings.dataset.noticeKey = key; }
   if (!notice.title) info.open = false;
 }
 function updateSegmentControls() {
-  const diff = result?.diffs.find(d => d.id === selectedId), segments = diff && !selectedMemoId && !selectedFormatId ? comparisonSegments(diff) : [];
-  const current = segmentSelections.get(selectedId) ?? 0;
+  const diff = result?.diffs.find(d => d.id === review.selections.content), segments = diff && review.mode === 'content' ? comparisonSegments(diff) : [];
+  const current = segmentSelections.get(review.selections.content) ?? 0;
   $('#preview-segment-controls').hidden = segments.length <= 1;
   $('#preview-explanation').classList.toggle('has-segments', segments.length > 1);
   $('#segment-position').textContent = `${current + 1} / ${segments.length}`;
@@ -582,6 +634,10 @@ function updateSegmentControls() {
   $('#next-segment').disabled = !!controller || current >= segments.length - 1;
 }
 function restoreSegments(root) {
+  for (const element of root.querySelectorAll('[data-content-segment-index]')) {
+    const id = Number(element.closest('[data-diff-id]').dataset.diffId);
+    element.classList.toggle('selected-segment', review.mode === 'content' && id === activeFocusId() && Number(element.dataset.contentSegmentIndex) === (segmentSelections.get(id) ?? 0));
+  }
   for (const element of root.querySelectorAll('.segmented-change')) {
     const id = Number(element.closest('[data-diff-id]').dataset.diffId), current = segmentSelections.get(id) ?? 0;
     const parts = element.querySelectorAll('[data-segment-index]');
@@ -599,7 +655,7 @@ async function selectSegment(id, index) {
   if (controller) return;
   const diff = result?.diffs.find(d => d.id === id), segments = diff ? comparisonSegments(diff) : [];
   if (!segments.length) return;
-  selectedId = id; selectedMemoId = null; selectedFormatId = null;
+  activateMode('content', id);
   segmentSelections.set(id, Math.max(0, Math.min(index, segments.length - 1)));
   updateNavigator(); restoreSegments($('#diff-list'));
   if (!$('#preview-panel').hidden) {
@@ -616,7 +672,7 @@ async function moveToActiveSegment() {
   for (const side of ['old', 'new']) { drawOverlays(side); scrollToRegion(side); }
   updateVisibleSelection();
 }
-for (const [id, step] of [['previous-segment', -1], ['next-segment', 1]]) $(`#${id}`).addEventListener('click', () => selectSegment(selectedId, (segmentSelections.get(selectedId) ?? 0) + step));
+for (const [id, step] of [['previous-segment', -1], ['next-segment', 1]]) $(`#${id}`).addEventListener('click', () => selectSegment(review.selections.content, (segmentSelections.get(review.selections.content) ?? 0) + step));
 document.addEventListener('click', event => {
   const step = event.target.closest('[data-segment-step]'), side = event.target.closest('[data-segment-side]');
   if (step || side) {
@@ -645,26 +701,40 @@ document.addEventListener('click', event => {
 $('#close-counterpart').addEventListener('click', () => $('#counterpart-dialog').close());
 function updateVisibleSelection() {
   if (!result) return;
+  $('#return-comparison').textContent = `${REVIEW_LABELS[review.mode]} 목록으로`;
   const id = activeFocusId();
   if (!id) {
-    $('#preview-selection-status').textContent = '선택 항목 없음';
+    $('#preview-selection-status').textContent = emptyReviewMessage();
+    $('#preview-explanation-text').innerHTML = `<p>${escapeHtml(emptyReviewMessage())}</p>`;
+    const empty = $('#selected-change-detail .review-empty'); if (empty) empty.textContent = emptyReviewMessage();
+    $('#preview-go-selection').hidden = true;
     $('#preview-jump').disabled = true; $('#preview-location-details').hidden = true;
     for (const side of ['old', 'new']) { $(`#${side}-position-note`).hidden = true; updatePreviewNotice(side); }
     return;
   }
-  const label = selectedMemoId ? `메모 ${String(id).slice(5)}` : selectedFormatId ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
+  const label = review.mode === 'memo' ? `메모 ${String(id).slice(5)}` : review.mode === 'format' ? `서식 구간 ${String(id).slice(7)}` : `${labels[result.diffs.find(d => d.id === id)?.type] ?? ''} · 항목 ${id}`;
   const statuses = ['old', 'new'].map(side => {
     const location = focusLocation(side), pages = [...new Set(location?.boxes.map(b => b.page) ?? [])];
     const note = $(`#${side}-position-note`), onPage = pages.includes(previewPages[side]);
-    note.hidden = onPage;
+    // Placement state is shown in the fixed footer, without resizing the pages.
+    note.hidden = true;
     note.disabled = location?.status === 'absent' || !!controller;
     note.textContent = pages.length ? `선택 항목: 미리보기 ${pages.join(', ')}쪽 →` : location?.status === 'absent' ? '이 버전에는 선택 항목 없음' : '위치 미확인 · 비교 내용으로 돌아가기 →';
     const prefix = side === 'old' ? '구버전' : '신버전';
-    if (pages.includes(previewPages[side])) return `${prefix}: 현재 미리보기 ${previewPages[side]}쪽에 표시`;
+    if (pages.includes(previewPages[side])) return `${prefix}: 미리보기 ${previewPages[side]}쪽에 위치`;
     if (pages.length) return `${prefix}: 미리보기 ${pages.join(', ')}쪽에 위치 (현재 ${previewPages[side]}쪽)`;
     return `${prefix}: ${location?.status === 'absent' ? '해당 항목 없음' : '위치 미확인'}`;
   });
   $('#preview-selection-status').textContent = `${label} — ${statuses.join(' / ')}`;
+  const placement = presence(id, true);
+  let indicator = $('#selection-placement');
+  const heading = $('#preview-explanation-text .explanation-heading');
+  if (heading && !indicator) { indicator = document.createElement('span'); indicator.id = 'selection-placement'; indicator.className = 'selection-placement'; heading.prepend(indicator); }
+  const placementText = placement.pending ? '위치 확인 전' : placement.offscreen ? '현재 화면 밖의 선택' : placement.unresolved ? '위치 미확인' : '';
+  if (indicator) { indicator.textContent = placementText; indicator.hidden = !placementText; }
+  $('#preview-go-selection').hidden = !placementText;
+  $('#preview-go-selection').disabled = !!controller;
+  $('#preview-go-selection').textContent = placement.offscreen ? '선택 위치로 이동' : '위치 다시 찾기';
   $('#toggle-details').title = label;
   const located = ['old', 'new'].map(side => ({ side, location: focusLocation(side) }));
   const failed = located.filter(({ location }) => !location || location.status === 'unresolved');
@@ -677,10 +747,12 @@ function updateVisibleSelection() {
   $('#preview-location-details').hidden = !help.length;
   $('#preview-location-summary').textContent = failed.length ? '이 변경 위치를 찾지 못했습니다.' : '일부 변경 위치에 색 표시를 하지 못했습니다.';
   $('#preview-location-help').textContent = help.join('\n');
-  $('#return-comparison').textContent = `${selectedFormatId ? '서식' : selectedMemoId ? '메모' : '내용'} 비교로 돌아가기`;
-  $('#preview-memo-control').hidden = !selectedMemoId;
-  $('#preview-format-control').hidden = !selectedFormatId;
-  $('#return-memos').hidden = true; $('#return-formats').hidden = true;
+  if (placement.offscreen) {
+    $('#preview-location-details').hidden = false;
+    $('#preview-location-summary').textContent = '현재 화면 밖의 선택';
+    $('#preview-location-help').textContent = statuses.join('\n');
+    $('#preview-jump').textContent = '선택 위치로 이동';
+  }
   for (const side of ['old', 'new']) updatePreviewNotice(side);
 }
 function drawOverlays(side) {
@@ -688,8 +760,10 @@ function drawOverlays(side) {
   svg.toggleAttribute('hidden', !previewHighlights);
   svg.replaceChildren(); if (!data) return;
   svg.setAttribute('viewBox', `0 0 ${data.width} ${data.height}`);
-  const visibleIds = new Set([...filteredDiffs().map(d => d.id), ...(result?.annotations?.diffs ?? []).map(m => m.id), ...(result?.formatting?.diffs ?? []).map(d => d.id)]);
-  for (const location of (data.locations ?? []).filter(l => visibleIds.has(l.id))) {
+  const visibleIds = new Set([...(result?.diffs ?? []).filter(d => d.type !== 'unchanged' || d.id === activeFocusId()).map(d => d.id), ...(result?.annotations?.diffs ?? []).map(m => m.id), ...(result?.formatting?.diffs ?? []).map(d => d.id)]);
+  const modeIds = new Set(currentItems(true).map(item => item.id));
+  const priority = location => location.id === activeFocusId() ? 2 : (location.category === 'format' ? 'format' : location.category === 'memo' ? 'memo' : 'content') === review.mode ? 1 : 0;
+  for (const location of (data.locations ?? []).filter(l => visibleIds.has(l.id)).sort((a, b) => priority(a) - priority(b))) {
     const boxes = clipPageBoxes(location.boxes, data);
     const boxKey = box => [box.page, box.x, box.y, box.width, box.height].map(n => Number(n).toFixed(3)).join(':');
     const activeBoxes = new Set(clipPageBoxes(focusLocation(side)?.boxes, data).map(boxKey));
@@ -707,7 +781,8 @@ function drawOverlays(side) {
     const isMemo = location.category === 'memo';
     const isFormat = location.category === 'format';
     const active = location.id === activeFocusId() && activeBoxes.has(boxKey(box));
-    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${isFormat ? ' format-region' : ''}${location.category === 'structure' ? ' structure-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${active ? ' selected-region' : ' secondary-region'}`);
+    const currentMode = modeIds.has(location.id) && (location.id !== activeFocusId() || !location.segments?.length);
+    rect.setAttribute('class', `region-box ${location.type}${isMemo ? ' memo-region' : ''}${isFormat ? ' format-region' : ''}${location.category === 'structure' ? ' structure-region' : ''}${location.status === 'context' || location.status === 'table' ? ' context-region' : ''}${active ? ' selected-region' : currentMode ? ' mode-region' : ' secondary-region'}`);
     rect.setAttribute('data-change-id', String(location.id));
     group.append(rect);
     }
@@ -740,18 +815,24 @@ function restorePreviewScroll(side) {
   $(`#${side}-viewport`).scrollTo(saved.left, saved.top);
 }
 
+function searchHits() { return review.view === 'preview' ? previewHits : review.mode === 'content' ? contentHits : currentItems(); }
 function updateSearchControls() {
-  const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
+  const preview = review.view === 'preview', hits = searchHits();
   const query = queryText();
-  const total = filteredDiffs().length;
+  const total = currentItems().length;
   $('#search-count').textContent = query ? searchPending ? '검색 중…' : preview
     ? `원본 전체에서 ${hits.length}개 문단 일치 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
-    : `전체 검색 결과 ${total}개 항목 · ${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}` : '';
+    : review.mode === 'content' ? `전체 검색 결과 ${total}개 항목 · ${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
+      : `${REVIEW_LABELS[review.mode]} 검색 결과 ${hits.length}개 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}` : '';
   $('#search-count').title = preview ? '원본 전체 문서 기준' : '선택한 변경 유형의 전체 결과를 검색합니다. 아직 표시되지 않은 항목도 자동으로 불러와 이동합니다.';
   $('#previous-match').disabled = !query || !hits.length || !!controller || searchPending;
   $('#next-match').disabled = !query || !hits.length || !!controller || searchPending;
   $('#toggle-search').classList.toggle('has-query', !!query);
+  $('.search-anchor').classList.toggle('has-query', !!query);
+  $('#toggle-search').textContent = query ? `검색: ${query}` : '검색';
+  $('#toggle-search').setAttribute('aria-label', query ? `${REVIEW_LABELS[review.mode]} 검색 조건: ${query}` : '검색');
   $('#toggle-search').title = query ? `검색: ${query}` : '검색';
+  review.searchPositions[review.mode][review.view] = searchIndex;
 }
 async function applySearch() {
   if (!result) return;
@@ -762,27 +843,26 @@ async function applySearch() {
   if (preview) {
     await showPreview({ ...previewPages }, queryText() ? '원본 전체에서 검색합니다.' : '', false);
     if (revision !== searchRevision || query !== queryText() || $('#preview-panel').hidden) return;
-    if (queryText() && previewHits.length) {
-      const onPage = previewHits.findIndex(h => h.side === 'new' && h.page === previewPages.new);
-      await focusMatch(onPage < 0 ? 0 : onPage);
-    }
-  } else if (queryText() && contentHits.length) await focusMatch(0);
+    // Typing or restoring conditions never changes the current original page.
+  } else if (review.mode === 'content' && queryText() && contentHits.length) await focusMatch(0);
   if (revision === searchRevision && query === queryText()) searchPending = false;
   updateSearchControls();
 }
 async function focusMatch(index) {
   if (controller) return;
   const query = queryText(), revision = searchRevision;
-  const preview = !$('#preview-panel').hidden, hits = preview ? previewHits : contentHits;
+  const preview = review.view === 'preview', hits = searchHits();
   if (!hits.length) return;
   searchIndex = (index + hits.length) % hits.length;
-  if (!preview) {
+  if (!preview && review.mode !== 'content') {
+    selectNavigation(hits[searchIndex].id);
+  } else if (!preview) {
     const hit = hits[searchIndex], diffs = filteredDiffs(), at = diffs.findIndex(d => d.id === hit.diffId);
     if (at >= shown) { shown = Math.ceil((at + 1) / 50) * 50; renderList(); }
     $('#diff-list').querySelectorAll('.current-search-hit').forEach(e => e.classList.remove('current-search-hit'));
     const elements = visibleSearchHits.get(hit.id) ?? [];
     elements.forEach(e => e.classList.add('current-search-hit'));
-    if (diffs[at]?.type !== 'unchanged') { selectedId = hit.diffId; updateNavigator(); }
+    review.selections.content = hit.diffId; updateNavigator();
     elements[0]?.scrollIntoView({ block: 'center' }); rememberContentPosition();
   } else {
     const hit = hits[searchIndex];
@@ -820,8 +900,20 @@ function fitPreviewPages() {
   }
 }
 const previewResize = new ResizeObserver(() => fitPreviewPages());
+let placementFrame = null, placementKey = '';
 for (const side of ['old', 'new']) {
   previewResize.observe($(`#${side}-viewport`));
+  $(`#${side}-viewport`).addEventListener('scroll', () => {
+    if (review.view !== 'preview') return;
+    savePreviewScroll(side);
+    if (placementFrame != null) return;
+    placementFrame = requestAnimationFrame(() => {
+      placementFrame = null;
+      const key = JSON.stringify([review.mode, activeFocusId(), activeFocusId() == null ? null : presence(activeFocusId(), true)]);
+      updateVisibleSelection();
+      if (key !== placementKey) { placementKey = key; updateNavigator(); }
+    });
+  }, { passive: true });
   const info = $(`#${side}-preview-warnings`).closest('.document-info');
   info.id = `${side}-preview-info`;
   $(`#${side}-render-notice`).setAttribute('aria-controls', info.id);
@@ -891,7 +983,7 @@ document.addEventListener('click', event => {
   const notice = event.target.closest('.rendering-notice');
   const openedByNotice = notice ? $(`#${notice.id.replace('-render-notice', '')}-preview-warnings`).closest('.document-info') : null;
   for (const popover of popovers()) if (popover.open && !popover.contains(event.target) && popover !== openedByNotice) closePopover(popover);
-  if (!$('#search-panel').hidden && !event.target.closest('.search-anchor')) setSearch(false, false);
+  if (!$('#search-panel').hidden && !event.target.closest('.search-anchor')) hideSearchPopover();
 });
 $('#counterpart-dialog').addEventListener('click', event => {
   const rect = $('#counterpart-dialog').getBoundingClientRect();

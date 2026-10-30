@@ -602,3 +602,35 @@ html { scrollbar-gutter:stable; }
 .document-info-body .preview-warnings .button { width:100%; font-size:14px; }
 .rendering-notice { min-height:44px; padding:8px 12px; font-size:14px; }
 .preview-document:first-child .document-info-body { left:0; right:auto; }
+
+/* Review type and list/original are independent axes in the existing toolbar. */
+.review-navigation { order:0; display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.review-navigation .view-tabs button { min-width:44px; }
+.display-toggle { display:flex; gap:4px; align-items:center; padding-left:12px; border-left:1px solid var(--line); }
+.display-toggle button { height:44px; min-width:44px; padding:6px 10px; border:1px solid transparent; border-radius:4px; background:white; color:var(--muted); font:inherit; font-size:13px; }
+.display-toggle button.selected { border-color:var(--line); background:var(--blue-tint); color:var(--blue); }
+.filter-unavailable { display:flex; align-items:center; min-height:44px; font-size:14px; color:var(--muted); }
+.search-anchor.has-query { width:128px; }
+.search-anchor.has-query>#toggle-search { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.selection-placement { flex-shrink:0; color:#875600!important; font-size:13px; font-weight:600; }
+.review-empty { padding:12px; font-size:14px; }
+.region-box.mode-region { fill-opacity:.16; stroke-opacity:1; stroke-width:1.25; }
+.region-box.format-region.secondary-region { fill-opacity:.08; stroke-opacity:.55; stroke-width:1; }
+.region-box.unchanged { fill:var(--muted); stroke:var(--muted); }
+.region-box.unchanged.selected-region { fill-opacity:.08; stroke-width:2; }
+#preview-go-selection { font-size:13px; }
+@media(max-width:1439px) {
+  .primary-actions { min-width:0; }
+  .search-anchor.has-query { flex-shrink:1; min-width:64px; }
+}
+@media(max-width:560px) {
+  .review-navigation { gap:4px; }
+  .display-toggle { gap:0; padding-left:4px; }
+  .display-toggle button { padding-inline:6px; }
+  .primary-tools { gap:8px; }
+  .preview-explanation { height:156px; }
+  .preview-explanation>#preview-go-selection { right:88px; max-width:140px; }
+  .preview-explanation:has(#preview-go-selection:not([hidden])) .explanation-heading { padding-right:230px; }
+}
+.cell-change.selected-segment>.cell-address { color:var(--blue); box-shadow:inset 3px 0 var(--blue); }
+.cell-change, .change-segment { scroll-margin-top:calc(var(--app-header-height) + var(--result-tools-height) + 16px); }
