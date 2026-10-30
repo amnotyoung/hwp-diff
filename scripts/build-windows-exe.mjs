@@ -16,10 +16,12 @@ const compiler = process.platform === 'win32' ? join(tools, 'windows', 'makensis
 await lstat(compiler);
 const output = join(out, '한컴 diff.exe'), flag = process.platform === 'win32' ? '/' : '-';
 console.log('Windows 단일 EXE 압축');
-const log = command(compiler, [flag + 'V2', flag + 'NOCONFIG', flag + 'DPAYLOAD_DIR=' + escape(stage),
+// The script contains Korean text. Off Windows, makensis converts it through the
+// process locale, so an unset locale (C) fails with 'Bad text encoding'.
+const log = command(compiler, [flag + 'V2', flag + 'NOCONFIG', flag + 'INPUTCHARSET', 'UTF8', flag + 'DPAYLOAD_DIR=' + escape(stage),
   flag + 'DNODE_EXE=' + escape(nodePath), flag + 'DNODE_LICENSE=' + escape(license), flag + 'DOUTPUT_EXE=' + escape(output),
   flag + 'DAPP_VERSION=' + pkg.version, flag + 'DAPP_QUAD_VERSION=' + pkg.version + '.0', join(root, 'packaging/portable.nsi')],
-  { env: { ...process.env, NSISDIR: join(tools, 'windows') } });
+  { env: { ...process.env, NSISDIR: join(tools, 'windows'), ...(process.platform === 'win32' ? {} : { LC_ALL: 'en_US.UTF-8' }) } });
 if (log.trim()) console.log(log.trim());
 const exe = await readFile(output), release = { ...manifest, files: manifest.files.length, bytes: exe.length, sha256: hash(exe), signed: false, windowsRuntimeTested: false };
 await writeFile(join(out, 'windows-build-info.json'), JSON.stringify(release, null, 2));
