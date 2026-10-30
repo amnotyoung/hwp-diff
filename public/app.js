@@ -735,14 +735,23 @@ function updateVisibleSelection() {
   const heading = $('#preview-explanation-text .explanation-heading');
   if (heading && !indicator) { indicator = document.createElement('span'); indicator.id = 'selection-placement'; indicator.className = 'selection-placement'; heading.prepend(indicator); }
   const placementText = placement.pending ? '위치 확인 전' : placement.offscreen ? '현재 화면 밖의 선택' : placement.unresolved ? '위치 미확인' : '';
-  if (indicator) { indicator.textContent = placementText; indicator.hidden = !placementText; }
+  const located = ['old', 'new'].map(side => ({ side, location: focusLocation(side) }));
+  const failed = located.filter(({ location }) => !location || location.status === 'unresolved');
+  const partial = located.filter(({ location }) => location && ['partial', 'partial-text', 'table'].includes(location.status));
+  // Missing highlights must be visible on the original itself, not only in the
+  // closed detail panel, so nobody reviews just the colored part and stops.
+  const coverage = placement.pending || !partial.length ? null : partial.some(({ location }) => location.status === 'table')
+    ? { label: '변경 칸 위치 미확인', help: '변경된 칸을 찾지 못해 표 시작 위치만 표시했습니다. 아래 변경 문구로 확인하세요.' }
+    : { label: '일부 위치 색 표시 안 됨', help: '일부 변경 위치에 색 표시를 하지 못했습니다. 아래 변경 문구나 상세 보기에서 모든 변경을 확인하세요.' };
+  if (indicator) {
+    indicator.textContent = [placementText, coverage?.label].filter(Boolean).join(' · ');
+    indicator.title = [placementText && statuses.join('\n'), coverage?.help].filter(Boolean).join('\n');
+    indicator.hidden = !indicator.textContent;
+  }
   $('#preview-go-selection').hidden = !placementText;
   $('#preview-go-selection').disabled = !!controller;
   $('#preview-go-selection').textContent = placement.offscreen ? '선택 위치로 이동' : '위치 다시 찾기';
   $('#toggle-details').title = label;
-  const located = ['old', 'new'].map(side => ({ side, location: focusLocation(side) }));
-  const failed = located.filter(({ location }) => !location || location.status === 'unresolved');
-  const partial = located.filter(({ location }) => location && ['partial', 'partial-text', 'table'].includes(location.status));
   $('#preview-jump').hidden = false;
   $('#preview-jump').dataset.retry = String(!!failed.length);
   $('#preview-jump').disabled = !!controller || located.every(({ location }) => location?.status === 'absent');
@@ -753,8 +762,8 @@ function updateVisibleSelection() {
   $('#preview-location-help').textContent = help.join('\n');
   if (placement.offscreen) {
     $('#preview-location-details').hidden = false;
-    $('#preview-location-summary').textContent = '현재 화면 밖의 선택';
-    $('#preview-location-help').textContent = statuses.join('\n');
+    $('#preview-location-summary').textContent = coverage ? `현재 화면 밖의 선택 · ${coverage.label}` : '현재 화면 밖의 선택';
+    $('#preview-location-help').textContent = [...statuses, ...(coverage ? [coverage.help] : [])].join('\n');
     $('#preview-jump').textContent = '선택 위치로 이동';
   }
   for (const side of ['old', 'new']) updatePreviewNotice(side);
