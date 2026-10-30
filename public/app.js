@@ -114,24 +114,66 @@ function setBusy(busy, preview = false) {
   updateToolbar();
   if (!busy) { restoreSegments($('#diff-list')); restoreSegments($('#selected-change-detail')); updateSegmentControls(); }
 }
+// The server streams one JSON object per line: stage updates, then the result.
+async function readProgressStream(response, onProgress) {
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '', scanned = 0, outcome = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+    // Only scan new text for line ends; a large result arrives in many chunks.
+    for (let at = buffer.indexOf('\n', scanned); at >= 0; at = buffer.indexOf('\n', 0)) {
+      const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);
+      if (!line) continue;
+      const message = JSON.parse(line);
+      if (message.progress) onProgress(message.progress); else outcome = message;
+    }
+    scanned = buffer.length;
+    if (done) break;
+  }
+  if (outcome?.error) throw new Error(outcome.error);
+  if (!outcome?.result) throw new Error('비교 결과를 받지 못했습니다. 다시 비교해 주세요.');
+  return outcome.result;
+}
+let progressTimer = null, progressStarted = 0;
+function showProgress({ step = 0, total = 4, label = '비교를 준비하는 중' } = {}) {
+  const steps = $('#progress-steps');
+  if (steps.children.length !== total) steps.replaceChildren(...Array.from({ length: total }, () => document.createElement('li')));
+  [...steps.children].forEach((item, i) => { item.classList.toggle('done', i < step - 1); item.classList.toggle('current', i === step - 1); });
+  steps.dataset.step = String(step); steps.dataset.total = String(total);
+  if ($('#progress-label').textContent !== label) $('#progress-label').textContent = label;
+  updateProgressTime();
+}
+function updateProgressTime() {
+  const seconds = Math.floor((Date.now() - progressStarted) / 1000), steps = $('#progress-steps');
+  $('#progress-meta').textContent = `${Number(steps.dataset.step) ? ` · ${steps.dataset.step}/${steps.dataset.total}단계` : ''} · ${seconds}초 경과`;
+  $('#progress-hint').hidden = seconds < 10;
+}
+function startProgress() {
+  progressStarted = Date.now(); clearInterval(progressTimer);
+  $('#compare-progress').hidden = false; showProgress();
+  progressTimer = setInterval(updateProgressTime, 1000);
+}
+function stopProgress() { clearInterval(progressTimer); progressTimer = null; $('#compare-progress').hidden = true; }
 async function compare(demo = false, reverse = false) {
   if (controller) return;
   controller = new AbortController();
   clearResults(); showError(); setBusy(true);
-  $('#status').textContent = demo ? '샘플 HWPX 두 개를 생성하고 실제 비교 엔진으로 처리하고 있습니다…' : '이 PC에서 문서를 읽고 변경 사항을 비교하고 있습니다…';
+  $('#status').textContent = ''; startProgress();
   try {
     const form = new FormData();
     if (!demo) { form.append('oldFile', files.old); form.append('newFile', files.new); }
-    const response = await fetch(demo ? '/api/demo' : '/api/compare', { method: 'POST', headers: { 'X-Hwp-Diff': '1' }, body: demo ? JSON.stringify({ reverse }) : form, signal: controller.signal });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '비교하지 못했습니다.');
+    const response = await fetch(demo ? '/api/demo' : '/api/compare', { method: 'POST', headers: { 'X-Hwp-Diff': '1', 'X-Hwp-Progress': '1' }, body: demo ? JSON.stringify({ reverse }) : form, signal: controller.signal });
+    let data;
+    if (response.ok && response.headers.get('Content-Type')?.startsWith('application/x-ndjson')) data = await readProgressStream(response, showProgress);
+    else { data = await response.json(); if (!response.ok) throw new Error(data.error || '비교하지 못했습니다.'); }
     result = data; isDemo = demo; demoReversed = reverse; filter = 'changes'; shown = 50; $('#search').value = '';
-    $('#status').textContent = '';
+    stopProgress();
     showResults();
   } catch (error) {
     $('#status').textContent = error.name === 'AbortError' ? '비교를 취소했습니다.' : '';
     if (error.name !== 'AbortError') showError(error.message);
-  } finally { controller = null; setBusy(false); }
+  } finally { controller = null; stopProgress(); setBusy(false); }
 }
 $('#compare').addEventListener('click', () => compare());
 $('#demo').addEventListener('click', () => compare(true));
@@ -450,6 +492,7 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
   const key = previewKey(side, page, searchQuery);
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
   $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '미리보기를 준비하고 있습니다…';
+  const started = Date.now(), elapsed = setInterval(() => { if (!message.hidden) message.textContent = `미리보기를 준비하고 있습니다… ${Math.floor((Date.now() - started) / 1000)}초 경과`; }, 1000);
   $(`#${side}-preview-warnings`).textContent = '';
   delete $(`#${side}-preview-warnings`).dataset.noticeKey;
   $(`#${side}-render-notice`).hidden = true;
@@ -491,7 +534,7 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
     previewData[side] = null;
     $(`#${side}-page`).value = String(previewPages[side]);
-  }
+  } finally { clearInterval(elapsed); }
 }
 // A page-number error describes one rejected input. Any later page movement
 // on that side, or selecting another change, makes it stale.

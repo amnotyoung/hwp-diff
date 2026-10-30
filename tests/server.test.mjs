@@ -121,3 +121,19 @@ test('foreign origin, rebinding Host and browser simple form requests are reject
   assert.equal((await fetch(base + '/api/demo', { method: 'POST' })).status, 403);
   assert.equal((await fetch(base + '/package.json')).status, 404);
 });
+
+test('comparison progress streams real stages before the result, and errors in-band', async () => {
+  const res = await post('/api/compare', form(), { 'X-Hwp-Progress': '1' });
+  assert.equal(res.status, 200); assert.match(res.headers.get('content-type'), /application\/x-ndjson/);
+  const lines = (await res.text()).trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(lines.filter(l => l.progress).map(l => l.progress.step), [1, 2, 3, 4]);
+  assert.match(lines[2].progress.label, /문단과 표/);
+  assert.equal(lines.at(-1).result.stats.modified, 3);
+  const broken = new FormData();
+  broken.append('oldFile', new Blob([new Uint8Array([1, 2, 3])]), 'old.hwpx'); broken.append('newFile', new Blob([files.newFile.bytes]), files.newFile.name);
+  const failed = (await (await post('/api/compare', broken, { 'X-Hwp-Progress': '1' })).text()).trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(failed.at(-1).error, 'parse failures arrive as the last line');
+  const plain = await post('/api/compare', form());
+  assert.match(plain.headers.get('content-type'), /application\/json/, 'requests without the header keep plain JSON');
+  await plain.json();
+});

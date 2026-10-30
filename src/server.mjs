@@ -89,7 +89,7 @@ async function previewRequest(req) {
   return { preview: true, page, options, file: { bytes: new Uint8Array(await file.arrayBuffer()) } };
 }
 
-function runWorker(data, signal) {
+function runWorker(data, signal, onProgress = () => {}) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./worker.mjs', import.meta.url), {
       workerData: data, resourceLimits: { maxOldGenerationSizeMb: 512 },
@@ -107,7 +107,10 @@ function runWorker(data, signal) {
     const timer = setTimeout(() => finish(new HttpError(408, '60초 안에 처리하지 못했습니다. 문서를 나누어 다시 비교해 주세요.')), 60_000);
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) abort();
-    worker.on('message', message => finish(message.error ? new HttpError(422, message.error) : null, message.result));
+    worker.on('message', message => {
+      if (message.progress) return onProgress(message.progress);
+      finish(message.error ? new HttpError(422, message.error) : null, message.result);
+    });
     worker.on('error', () => finish(new HttpError(422, '문서 처리 중 오류가 발생했습니다. 파일 상태와 크기를 확인해 주세요.')));
     worker.on('exit', () => { if (!settled) finish(new HttpError(422, '문서 처리 작업이 종료되었습니다.')); });
   });
@@ -154,8 +157,14 @@ export function createServer() {
           }
           const data = path === '/api/demo' ? { demo: true, reverse: demoOptions?.reverse === true }
             : path === '/api/preview' ? await previewRequest(req) : await uploadFiles(req);
-          const result = await runWorker(data, abort.signal);
-          send(200, result);
+          if (path !== '/api/preview' && req.headers['x-hwp-progress'] === '1') {
+            // One JSON object per line: stage updates, then the result or an error.
+            res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
+            const line = value => { if (!res.destroyed) res.write(`${JSON.stringify(value)}\n`); };
+            try { line({ result: await runWorker(data, abort.signal, progress => line({ progress })) }); }
+            catch (error) { line({ error: error.status ? error.message : '요청 처리 중 오류가 발생했습니다.' }); }
+            res.end();
+          } else send(200, await runWorker(data, abort.signal));
         } finally { busy = false; res.off('close', onClose); }
       } else send(404, { error: '요청한 페이지를 찾을 수 없습니다.' });
     } catch (error) { send(error.status ?? 500, { error: error.status ? error.message : '요청 처리 중 오류가 발생했습니다.' }); }

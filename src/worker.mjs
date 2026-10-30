@@ -8,7 +8,7 @@ try {
   if (workerData.demo && workerData.reverse) [files.oldFile, files.newFile] = [files.newFile, files.oldFile];
   const result = workerData.preview
     ? await previewDocument(workerData.demo ? files[workerData.side === 'old' ? 'oldFile' : 'newFile'] : workerData.file, workerData.page, workerData.options)
-    : await compareDocuments(files.oldFile, files.newFile);
+    : await compareDocuments(files.oldFile, files.newFile, progress => parentPort.postMessage({ progress }));
   parentPort.postMessage({ result });
 } catch (error) {
   parentPort.postMessage({ error: error.message });

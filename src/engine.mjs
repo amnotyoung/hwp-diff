@@ -156,14 +156,21 @@ async function readDocument(bytes, name) {
   return result;
 }
 
-export async function compareDocuments(oldFile, newFile) {
-  const a = await readDocument(oldFile.bytes, oldFile.name);
-  const b = await readDocument(newFile.bytes, newFile.name);
+export const COMPARE_STEPS = ['구버전 문서를 읽는 중', '신버전 문서를 읽는 중', '문단과 표를 맞추어 비교하는 중', '메모와 서식을 비교하는 중'];
+// onProgress reports the stage that is about to run, so a waiting user can
+// tell slow work from a stalled screen.
+export async function compareDocuments(oldFile, newFile, onProgress = () => {}) {
+  const step = index => onProgress({ step: index + 1, total: COMPARE_STEPS.length, label: COMPARE_STEPS[index] });
+  step(0); const a = await readDocument(oldFile.bytes, oldFile.name);
+  step(1); const b = await readDocument(newFile.bytes, newFile.name);
   const document = (result, file) => ({
     name: file.name, size: file.bytes.length, format: result.fileType,
     pageMode: result.metadata?.pageMode ?? 'section', blocks: result.blocks.length,
   });
-  return compareBlocks(a.blocks, b.blocks, {
+  step(2); const compared = compareBlocks(a.blocks, b.blocks);
+  step(3);
+  return {
+    ...compared,
     engine: `kordoc ${VERSION}`, createdAt: new Date().toISOString(),
     documents: { before: document(a, oldFile), after: document(b, newFile) },
     warnings: [
@@ -173,5 +180,5 @@ export async function compareDocuments(oldFile, newFile) {
     annotations: await compareAnnotations(oldFile, newFile, [a.fileType, b.fileType]),
     formatting: await compareFormatting(oldFile, newFile, [a.fileType, b.fileType]),
     limitations: LIMITATIONS,
-  });
+  };
 }
