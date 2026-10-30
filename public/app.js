@@ -1,6 +1,6 @@
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, comparisonSegments } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
-import { canvasWidth, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
+import { fittedCanvasWidths, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
 import { createReviewState, REVIEW_LABELS, allReviewItems, reviewItems, reviewFilters, reviewItemText, reviewPresence } from './review-state.js';
 
 const $ = selector => document.querySelector(selector);
@@ -894,14 +894,17 @@ document.querySelectorAll('[data-preview-side]').forEach(b => b.addEventListener
 
 function fitPreviewPages() {
   if ($('#preview-panel').hidden) return;
+  const zoom = $('#preview-zoom').value, sides = [];
   for (const side of ['old', 'new']) {
-    const data = previewData[side], viewport = $(`#${side}-viewport`), canvas = $(`#${side}-canvas`);
+    const data = previewData[side], viewport = $(`#${side}-viewport`);
     if (!data || !viewport.clientWidth || !viewport.clientHeight) continue;
     const style = getComputedStyle(viewport);
-    const width = canvasWidth(data, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), $('#preview-zoom').value);
-    if (width !== null) canvas.style.setProperty('--canvas-width', `${width}px`);
-    if ($('#preview-zoom').value === 'page') viewport.scrollTo(0, 0);
+    sides.push({ side, viewport, page: data, availableWidth: viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), availableHeight: viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) });
   }
+  fittedCanvasWidths(sides, zoom).forEach((width, i) => {
+    if (width !== null) $(`#${sides[i].side}-canvas`).style.setProperty('--canvas-width', `${width}px`);
+    if (zoom === 'page') sides[i].viewport.scrollTo(0, 0);
+  });
 }
 const previewResize = new ResizeObserver(() => fitPreviewPages());
 let placementFrame = null, placementKey = '';

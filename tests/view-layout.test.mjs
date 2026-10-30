@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasWidth, clipPageBoxes, previewNotice, validatePageInput } from '../public/view-layout.js';
+import { canvasWidth, fittedCanvasWidths, clipPageBoxes, previewNotice, validatePageInput } from '../public/view-layout.js';
 import { fileLabel } from '../public/report.js';
 
 test('page fit preserves the complete portrait or landscape sheet within both available dimensions', () => {
@@ -59,4 +59,18 @@ test('one reader-facing notice replaces overlapping geometry diagnostics without
   const missing = previewNotice({ ...data, rendering: { ...data.rendering, unmatchedTextCount: 2 } }, { status: 'unresolved' });
   assert.match(missing.title, /글이 보이지/); assert.match(missing.message, /원본 파일/);
   assert.deepEqual(previewNotice({ warnings: [] }, { status: 'paragraph' }), { title: '', message: '' });
+});
+
+test('page fit uses one scale for both versions, even when one viewport is shorter', () => {
+  const a4 = { width: 595, height: 842 };
+  const [old, fresh] = fittedCanvasWidths([
+    { page: a4, availableWidth: 480, availableHeight: 600 },
+    { page: a4, availableWidth: 480, availableHeight: 540 },
+  ], 'page');
+  assert.equal(old, fresh);
+  assert.ok(fresh * a4.height / a4.width <= 540);
+  const letter = { width: 612, height: 792 };
+  const [x, y] = fittedCanvasWidths([{ page: a4, availableWidth: 480, availableHeight: 600 }, { page: letter, availableWidth: 480, availableHeight: 600 }], 'page');
+  assert.ok(Math.abs(x / a4.width - y / letter.width) < 0.01, 'same scale across paper sizes');
+  assert.deepEqual(fittedCanvasWidths([{ page: a4, availableWidth: 480, availableHeight: 600 }, { page: a4, availableWidth: 300, availableHeight: 600 }], 'fit'), [480, 300]);
 });

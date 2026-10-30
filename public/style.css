@@ -639,3 +639,9 @@ html { scrollbar-gutter:stable; }
 .change-reason { margin:0; padding:6px 16px; border-bottom:1px solid var(--line); background:var(--modified-tint); color:#875600; font-size:14px; }
 .cell-change>.change-reason { border-bottom:0; }
 #selected-change-detail .change-reason { padding:4px 12px; font-size:13px; }
+
+/* Both versions share the title row, one notice row and the page row, so a
+   notice on one side never shrinks or lowers only that side's page. */
+.preview-grid { grid-template-rows:auto auto minmax(0,1fr); row-gap:0; }
+.preview-document { display:grid; grid-row:span 3; grid-template-rows:subgrid; grid-template-columns:minmax(0,1fr); }
+.document-notices { display:flex; flex-direction:column; min-width:0; }

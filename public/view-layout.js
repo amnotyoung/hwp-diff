@@ -7,6 +7,17 @@ export function canvasWidth(page, availableWidth, availableHeight, zoom) {
   return Number.isFinite(percent) && percent > 0 ? Math.floor(page.width * 96 / 72 * percent / 100) : null;
 }
 
+// Page fit shows both versions at one scale, so the same text has the same
+// size on both sides even when one viewport is shorter or the paper differs.
+export function fittedCanvasWidths(sides, zoom) {
+  const widths = sides.map(side => canvasWidth(side.page, side.availableWidth, side.availableHeight, zoom));
+  if (zoom !== 'page') return widths;
+  const scales = widths.map((width, i) => width === null ? null : width / sides[i].page.width).filter(scale => scale !== null);
+  if (!scales.length) return widths;
+  const scale = Math.min(...scales);
+  return widths.map((width, i) => width === null ? null : Math.max(1, Math.floor(sides[i].page.width * scale)));
+}
+
 export function validatePageInput(value, current, total) {
   const page = Number(value), valid = String(value).trim() !== '' && Number.isSafeInteger(page) && page >= 1 && page <= total;
   return { valid, page: valid ? page : current, message: valid ? '' : `1~${total}쪽을 입력하세요. ${current}쪽으로 되돌렸습니다.` };
