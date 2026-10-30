@@ -180,3 +180,25 @@ test('heading level changes and nested cell classifications are not content edit
   old.table.cells[0][0].blocks = [a]; fresh.table.cells[0][0].blocks = [b];
   const r = compareBlocks([old], [fresh]); assert.equal(r.stats.modified, 0); assert.equal(r.diffs[0].cells.length, 0); assert.equal(r.structureStats.changed, 1);
 });
+
+test('a memo that hides cell paragraphs does not turn identical cell text into an edit', () => {
+  const title = '(한국국제협력단) 분석결과의 정책활용 노력 및 성과 보고서';
+  const withParagraphs = { type: 'table', table: { rows: 1, cols: 1, cells: [[{ text: title, rowSpan: 1, colSpan: 1, blocks: [paragraph(title)] }]] } };
+  // Kordoc returns no cell paragraphs when the cell holds a memo field.
+  const withMemo = structuredClone(withParagraphs); withMemo.table.cells[0][0].blocks = [];
+  const result = compareBlocks([withMemo], [withParagraphs]);
+  assert.deepEqual(result.stats, { added: 0, removed: 0, modified: 0, unchanged: 1 });
+  assert.equal(result.diffs[0].cells.length, 0);
+  const edited = structuredClone(withParagraphs); edited.table.cells[0][0].text = title + ' (수정)';
+  assert.equal(compareBlocks([withMemo], [edited]).diffs[0].cells.length, 1, 'real text edits in a memo cell stay visible');
+});
+
+test('identical visible cell text that still differs explains why it counts as changed', () => {
+  const split = { type: 'table', table: { rows: 1, cols: 1, cells: [[{ text: '가나', rowSpan: 1, colSpan: 1, blocks: [paragraph('가'), paragraph('나')] }]] } };
+  const joined = structuredClone(split); joined.table.cells[0][0].blocks = [paragraph('가나')];
+  const diff = compareBlocks([split], [joined]).diffs[0];
+  assert.equal(diff.type, 'modified');
+  assert.match(renderDiff(diff, { before: {}, after: {} }, true), /문구는 같고 셀 안의 문단 나눔이 다릅니다/);
+  const spaced = compareBlocks([table([['예산 100']])], [table([['예산 100']])]).diffs[0];
+  assert.match(renderDiff(spaced, { before: {}, after: {} }, true), /보이지 않는 문자만 다릅니다/);
+});

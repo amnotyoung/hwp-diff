@@ -32,6 +32,45 @@ export function textParts(before = '', after = '') {
   return parts.map(p => { const result = { ...p, beforeStart: old, afterStart: fresh }; if (p.type !== 'added') old += p.text.length; if (p.type !== 'removed') fresh += p.text.length; return result; });
 }
 
+const TEXT_KINDS = new Set(['paragraph', 'heading', 'list']);
+// A parser's heading heuristic must not turn identical text into deletion/addition.
+export function semanticContent(value) {
+  if (Array.isArray(value)) return value.map(semanticContent);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'type' && TEXT_KINDS.has(child) ? 'paragraph' : semanticContent(child)]));
+}
+
+const sameBlockList = (x = [], y = []) => x.length === y.length && x.every((block, i) => sameContent(block, y[i]));
+// Kordoc returns an empty paragraph list for a table cell that holds a memo,
+// while the cell text stays complete. Compare paragraphs only when both
+// versions expose them, so a memo never turns identical text into an edit.
+export function cellDiffers(a, b) {
+  if (!a || !b) return !a !== !b;
+  if (a.text !== b.text || (a.rowSpan ?? 1) !== (b.rowSpan ?? 1) || (a.colSpan ?? 1) !== (b.colSpan ?? 1)) return true;
+  return !!a.blocks?.length && !!b.blocks?.length && !sameBlockList(a.blocks, b.blocks);
+}
+export function sameContent(a, b) {
+  if (!a || !b) return !a && !b;
+  const { table: ta, children: ca, footnoteBlocks: fa, ...restA } = a;
+  const { table: tb, children: cb, footnoteBlocks: fb, ...restB } = b;
+  if (JSON.stringify(semanticContent(restA)) !== JSON.stringify(semanticContent(restB)) || !sameBlockList(ca, cb) || !sameBlockList(fa, fb)) return false;
+  if (!ta || !tb) return !ta && !tb;
+  const { cells: xa = [], captionBlocks: pa, ...shapeA } = ta, { cells: xb = [], captionBlocks: pb, ...shapeB } = tb;
+  if (JSON.stringify(shapeA) !== JSON.stringify(shapeB) || !sameBlockList(pa, pb)) return false;
+  for (let r = 0; r < Math.max(xa.length, xb.length); r++) {
+    for (let c = 0; c < Math.max(xa[r]?.length ?? 0, xb[r]?.length ?? 0); c++) if (cellDiffers(xa[r]?.[c] ?? null, xb[r]?.[c] ?? null)) return false;
+  }
+  return true;
+}
+
+const visibleText = text => String(text ?? '').replace(/[\s\p{Cf}]/gu, '');
+export const invisibleOnly = (before = '', after = '') => before !== after && visibleText(before) === visibleText(after);
+// Why a changed cell shows the same visible words on both sides.
+export function cellChangeReason(a, b) {
+  if (!a || !b || (a.rowSpan ?? 1) !== (b.rowSpan ?? 1) || (a.colSpan ?? 1) !== (b.colSpan ?? 1)) return null;
+  return a.text === b.text ? 'paragraphs' : invisibleOnly(a.text, b.text) ? 'invisible' : null;
+}
+
 export function paragraphHeading(text) {
   const line = String(text ?? '').split('\n')[0].trim();
   const match = line.match(/^[-•●]\s*\(([^)\n]{2,70})\)/)

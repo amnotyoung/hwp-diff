@@ -634,3 +634,8 @@ html { scrollbar-gutter:stable; }
 }
 .cell-change.selected-segment>.cell-address { color:var(--blue); box-shadow:inset 3px 0 var(--blue); }
 .cell-change, .change-segment { scroll-margin-top:calc(var(--app-header-height) + var(--result-tools-height) + 16px); }
+
+/* Same visible words on both sides: say why the item still counts as changed. */
+.change-reason { margin:0; padding:6px 16px; border-bottom:1px solid var(--line); background:var(--modified-tint); color:#875600; font-size:14px; }
+.cell-change>.change-reason { border-bottom:0; }
+#selected-change-detail .change-reason { padding:4px 12px; font-size:13px; }

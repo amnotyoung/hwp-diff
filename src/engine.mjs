@@ -4,7 +4,7 @@ process.env.ORT_DISABLE_TELEMETRY = '1';
 const { parse, diffBlocks, VERSION } = await import('kordoc');
 import { compareAnnotations } from './annotations.mjs';
 import { compareFormatting } from './formatting.mjs';
-import { paragraphHeading } from '../public/text-diff.js';
+import { paragraphHeading, semanticContent, sameContent, cellDiffers } from '../public/text-diff.js';
 
 export const LIMITATIONS = [
   '본문과 표의 내용·병합 구조를 비교합니다. HWPX의 글자색·글꼴·자간·장평은 서식 탭에서 별도로 비교합니다. 여백·그림·도장과 그림 속 글자는 비교하지 않습니다.',
@@ -64,7 +64,7 @@ function cellChanges(before, after) {
     for (let c = 0; c < Math.max(before.cols, after.cols); c++) {
       const a = before.cells[r]?.[c] ?? null;
       const b = after.cells[r]?.[c] ?? null;
-      if (JSON.stringify(semanticContent(a)) !== JSON.stringify(semanticContent(b))) changes.push({
+      if (cellDiffers(a, b)) changes.push({
         row: r + 1, col: c + 1, type: !a ? 'added' : !b ? 'removed' : 'modified',
         before: a, after: b,
       });
@@ -74,12 +74,6 @@ function cellChanges(before, after) {
 }
 
 const textKinds = new Set(['paragraph', 'heading', 'list']);
-// A parser's heading heuristic must not turn identical text into deletion/addition.
-function semanticContent(value) {
-  if (Array.isArray(value)) return value.map(semanticContent);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'type' && textKinds.has(child) ? 'paragraph' : semanticContent(child)]));
-}
 function structureChanges(before, after, path = '본문') {
   if (!before || !after) return [];
   const changes = [];
@@ -125,8 +119,7 @@ export function compareBlocks(before, after, metadata = {}) {
     const a = content(rawA), b = content(rawB), structure = structureChanges(rawA, rawB);
     // Kordoc 4.24.18 treats >= .99 similarity as unchanged. Use exact equality
     // AFTER alignment so a one-digit change in a long paragraph is never hidden.
-    const contentType = !a ? 'added' : !b ? 'removed'
-      : JSON.stringify(semanticContent(a)) === JSON.stringify(semanticContent(b)) ? 'unchanged' : 'modified';
+    const contentType = !a ? 'added' : !b ? 'removed' : sameContent(a, b) ? 'unchanged' : 'modified';
     const type = contentType === 'unchanged' && structure.length ? 'structure' : contentType;
     stats[contentType]++;
     return {
