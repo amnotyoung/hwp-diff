@@ -117,6 +117,72 @@ export function alignBlocks(a, b) {
   return { diffs };
 }
 
+// Alignment keeps document order, so two swapped sections are paired with
+// each other's places and look rewritten. After alignment, a changed block is
+// re-linked to a clearly better partner of the same kind; a re-linked pair
+// that crosses another pair is reported as a move.
+const MOVE_SIMILARITY = 0.4, MOVE_MARGIN = 0.15, MOVE_PAIR_LIMIT = 250_000, MOVE_MIN_CHARS = 20;
+const similarityText = block => [block.text, block.footnoteText, ...(block.children ?? []).map(similarityText),
+  ...(block.table?.cells ?? []).flat().filter(Boolean).map(cell => cell.text)].filter(Boolean).join('\n');
+function bigrams(text) {
+  const chars = Array.from(text.replace(/\s+/gu, '')), counts = new Map();
+  for (let i = 0; i < chars.length - 1; i++) { const gram = chars[i] + chars[i + 1]; counts.set(gram, (counts.get(gram) ?? 0) + 1); }
+  return { counts, size: Math.max(0, chars.length - 1) };
+}
+// Dice coefficient of character pairs; `floor` skips pairs that cannot reach it.
+function dice(x, y, floor = 0) {
+  if (!x.size || !y.size) return x.size === y.size ? 1 : 0;
+  if (2 * Math.min(x.size, y.size) / (x.size + y.size) < floor) return 0;
+  const [small, large] = x.counts.size <= y.counts.size ? [x, y] : [y, x];
+  let common = 0;
+  for (const [gram, n] of small.counts) common += Math.min(n, large.counts.get(gram) ?? 0);
+  return 2 * common / (x.size + y.size);
+}
+export function relinkMoves(pairs, olds, news) {
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const partnerOfOld = new Map(), partnerOfNew = new Map();
+  for (const p of pairs) if (p.before && p.after) { partnerOfOld.set(p.before, p.after); partnerOfNew.set(p.after, p.before); }
+  const oldCandidates = pairs.filter(p => p.before && (!p.after || !same(p.before, p.after))).map(p => p.before);
+  const newCandidates = pairs.filter(p => p.after && (!p.before || !same(p.before, p.after))).map(p => p.after);
+  if (!oldCandidates.length || !newCandidates.length || oldCandidates.length * newCandidates.length > MOVE_PAIR_LIMIT) return pairs.map(p => ({ ...p, moved: false }));
+  const profiles = new Map([...oldCandidates, ...newCandidates].map(block => [block, bigrams(similarityText(block))]));
+  const similarity = (a, b, floor = 0) => !!a.table !== !!b.table ? 0 : dice(profiles.get(a), profiles.get(b), floor);
+  // Short repeated labels such as '증빙1-3' say nothing about where a section
+  // went. A short block is linked only when identical and unique in both versions.
+  const count = blocks => blocks.reduce((counts, block) => { const key = JSON.stringify(block); return counts.set(key, (counts.get(key) ?? 0) + 1); }, new Map());
+  const oldCounts = count(olds), newCounts = count(news);
+  const linkable = (a, b) => Math.min(profiles.get(a).size, profiles.get(b).size) + 1 >= MOVE_MIN_CHARS
+    || (same(a, b) && oldCounts.get(JSON.stringify(a)) === 1 && newCounts.get(JSON.stringify(b)) === 1);
+  const scored = [];
+  for (const a of oldCandidates) for (const b of newCandidates) {
+    if (partnerOfOld.get(a) === b || !linkable(a, b)) continue;
+    const score = similarity(a, b, MOVE_SIMILARITY);
+    if (score >= MOVE_SIMILARITY) scored.push([score, a, b]);
+  }
+  scored.sort((x, y) => y[0] - x[0]);
+  const relinkedOld = new Map(), relinkedNew = new Map();
+  for (const [score, a, b] of scored) {
+    if (relinkedOld.has(a) || relinkedNew.has(b)) continue;
+    // Only a clearly better partner than each block's aligned partner.
+    const currentA = partnerOfOld.get(a), currentB = partnerOfNew.get(b);
+    if (currentA && score < similarity(a, currentA) + MOVE_MARGIN) continue;
+    if (currentB && score < similarity(currentB, b) + MOVE_MARGIN) continue;
+    relinkedOld.set(a, b); relinkedNew.set(b, a);
+  }
+  if (!relinkedOld.size) return pairs.map(p => ({ ...p, moved: false }));
+  // Keep reading order: a re-linked pair appears where its new-version block is.
+  const result = [];
+  for (const p of pairs) {
+    const keep = p.before && p.after && !relinkedOld.has(p.before) && !relinkedNew.has(p.after);
+    if (keep) { result.push({ before: p.before, after: p.after, relinked: false }); continue; }
+    if (p.before && !relinkedOld.has(p.before)) result.push({ before: p.before, after: null, relinked: false });
+    if (p.after) result.push({ before: relinkedNew.get(p.after) ?? null, after: p.after, relinked: relinkedNew.has(p.after) });
+  }
+  const oldPosition = new Map(olds.map((block, i) => [block, i])), newPosition = new Map(news.map((block, i) => [block, i]));
+  const linked = result.filter(p => p.before && p.after);
+  return result.map(({ relinked, ...p }) => ({ ...p, moved: relinked && linked.some(q => q !== p && (oldPosition.get(q.before) - oldPosition.get(p.before)) * (newPosition.get(q.after) - newPosition.get(p.after)) < 0) }));
+}
+
 export function compareBlocks(before, after, metadata = {}) {
   if (before.length > 2000 || after.length > 2000 || before.length * after.length > 2_000_000) {
     throw new Error('문단 수가 첫 버전의 처리 한도를 넘습니다. 문서를 나누어 비교해 주세요.');
@@ -129,7 +195,8 @@ export function compareBlocks(before, after, metadata = {}) {
     const alignment = { ...projected, text: raw.type === 'table' ? undefined : projected.text };
     originals.set(alignment, raw); return alignment;
   });
-  const aligned = alignBlocks(comparable(before), comparable(after));
+  const olds = comparable(before), news = comparable(after);
+  const aligned = { diffs: relinkMoves(alignBlocks(olds, news).diffs.map(d => ({ before: d.before ?? null, after: d.after ?? null })), olds, news) };
   const stats = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   const oldIndexes = new Map(before.map((b, i) => [b, i + 1]));
   const newIndexes = new Map(after.map((b, i) => [b, i + 1]));
@@ -150,10 +217,10 @@ export function compareBlocks(before, after, metadata = {}) {
     // Kordoc 4.24.18 treats >= .99 similarity as unchanged. Use exact equality
     // AFTER alignment so a one-digit change in a long paragraph is never hidden.
     const contentType = !a ? 'added' : !b ? 'removed' : sameContent(a, b) ? 'unchanged' : 'modified';
-    const type = contentType === 'unchanged' && structure.length ? 'structure' : contentType;
+    const type = pair.moved && contentType === 'unchanged' ? 'moved' : contentType === 'unchanged' && structure.length ? 'structure' : contentType;
     stats[contentType]++;
     return {
-      id: index + 1, type, contentType, before: a, after: b, structureChanges: structure,
+      id: index + 1, type, contentType, before: a, after: b, structureChanges: structure, moved: !!pair.moved,
       oldIndex: oldIndexes.get(originals.get(pair.before)) ?? null, newIndex: newIndexes.get(originals.get(pair.after)) ?? null,
       oldPage: originals.get(pair.before)?.pageNumber ?? null, newPage: originals.get(pair.after)?.pageNumber ?? null,
       oldAnchor: oldAnchors.get(originals.get(pair.before)) ?? null, newAnchor: newAnchors.get(originals.get(pair.after)) ?? null,
@@ -168,11 +235,16 @@ export function compareBlocks(before, after, metadata = {}) {
     const group = candidateGroups.get(heading.key) ?? { label: heading.label, added: [], removed: [] };
     group[d.type].push(d); candidateGroups.set(heading.key, group);
   }
+  // Say where a moved block used to be, by the item that preceded it in the old version.
+  for (const d of diffs) if (d.moved) {
+    const previous = diffs.filter(x => x.oldIndex != null && x.oldIndex < d.oldIndex).reduce((best, x) => !best || x.oldIndex > best.oldIndex ? x : best, null);
+    d.movedAfter = previous?.id ?? null;
+  }
   for (const group of candidateGroups.values()) if (group.added.length === 1 && group.removed.length === 1) {
     const old = group.removed[0], fresh = group.added[0];
     old.counterpart = { id: fresh.id, label: group.label }; fresh.counterpart = { id: old.id, label: group.label };
   }
-  return { stats, diffs, structureStats: { changed: diffs.filter(d => d.structureChanges.length).length }, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
+  return { stats, diffs, structureStats: { changed: diffs.filter(d => d.structureChanges.length).length }, moveStats: { moved: diffs.filter(d => d.moved).length }, unsupported: { before: imageInventory(before), after: imageInventory(after) }, ...metadata };
 }
 
 async function readDocument(bytes, name) {

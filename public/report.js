@@ -1,5 +1,12 @@
 import { textParts, textChanges, changeAnchors, findOccurrences, paragraphPairs, cellDiffers, cellChangeReason, invisibleOnly } from './text-diff.js';
-export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일', structure: '구조 변경' };
+export const labels = { added: '추가', removed: '삭제', modified: '수정', unchanged: '동일', structure: '구조 변경', moved: '위치 이동' };
+// A moved block is compared with its own earlier version, not with whatever
+// now occupies its old place.
+export function moveNote(diff) {
+  if (!diff?.moved) return '';
+  const from = diff.movedAfter ? `항목 ${diff.movedAfter} 다음` : '문서 맨 앞';
+  return `위치 이동 · 구버전에서는 ${from}에 있었습니다. ${diff.contentType === 'unchanged' ? '내용은 같습니다.' : '같은 내용끼리 연결해 바뀐 문구만 표시합니다.'}`;
+}
 const REASONS = {
   paragraphs: '문구는 같고 셀 안의 문단 나눔이 다릅니다.',
   invisible: '띄어쓰기·줄바꿈 등 보이지 않는 문자만 다릅니다.',
@@ -27,7 +34,7 @@ export function fileLabel(name, limit = 42) {
 export function previewTargets(result, side, selectedId = null) {
   const old = side === 'old';
   const body = result.diffs.filter(d => d.type !== 'unchanged' || d.id === selectedId).map(d => ({
-    id: d.id, type: d.type === 'structure' ? 'modified' : d.type, category: d.type === 'structure' ? 'structure' : 'content', block: old ? d.before : d.after,
+    id: d.id, type: ['structure', 'moved'].includes(d.type) ? 'modified' : d.type, category: d.type === 'structure' ? 'structure' : 'content', block: old ? d.before : d.after,
     anchor: old ? d.oldAnchor : d.newAnchor,
     cells: d.cells.map(c => ({ row: c.row, col: c.col, anchors: changeAnchors(c.before?.text ?? '', c.after?.text ?? '', old ? 'before' : 'after') })),
     textAnchors: d.cells.length ? [] : changeAnchors(blockText(d.before), blockText(d.after), old ? 'before' : 'after'),
@@ -122,11 +129,14 @@ export function previewExplanation(diff, category = 'content', segmentIndex = 0)
       before = (diff.structureChanges ?? []).map(c => structureLabel(c.before)).join(' · ');
       after = (diff.structureChanges ?? []).map(c => structureLabel(c.after)).join(' · ');
       note = '본문 동일 · 제목/문단 분류 변경';
+    } else if (diff.type === 'moved') {
+      note = `내용 동일 · 구버전에서는 ${diff.movedAfter ? `항목 ${diff.movedAfter} 다음` : '문서 맨 앞'}`;
     } else if (before === after && !reason && (diff.before?.table || diff.after?.table)) {
       const shape = (block, value) => `${block?.table ? `${block.table.rows}행 × ${block.table.cols}열` : '표 없음'}${value ? ` · 셀 병합 ${value.rowSpan}행 × ${value.colSpan}열` : ''}`;
       before = shape(diff.before, cell?.before); after = shape(diff.after, cell?.after); note = '표 구조 변경';
     }
   }
+  if (category === 'content' && diff.moved && diff.type !== 'moved') note = `위치 이동 · ${note}`;
   return `<div class="explanation-heading"><strong>${escapeHtml(title)}</strong>${note ? `<span>${escapeHtml(note)}</span>` : ''}</div><div class="explanation-values">${[['before', before], ['after', after]].map(([side, text]) => `<p><span class="explanation-side">${side === 'before' ? '구버전' : '신버전'}</span><span class="explanation-excerpt" title="${escapeHtml(text)}">${briefEdit(before, after, side)}</span></p>`).join('')}</div>`;
 }
 
@@ -243,13 +253,14 @@ export function renderDiff(diff, documents, navigation = false, query = '', focu
   const compact = !query && diff.type === 'modified' && diff.cells.length > 0;
   const segmented = !query && comparisonSegments(diff).some(s => s.divided);
   return `<article class="diff-card ${diff.type}" id="change-${diff.id}" tabindex="-1" data-diff-id="${diff.id}">
-    <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span><span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
+    <div class="diff-heading"><span class="type-badge ${diff.type}">${labels[diff.type]}</span>${diff.moved && diff.type !== 'moved' ? '<span class="type-badge moved">위치 이동</span>' : ''}<span>항목 ${String(diff.id).padStart(2, '0')}${diff.cells.length ? ` · 변경 셀 ${diff.cells.length}개` : ''}</span>${navigation ? `<button class="preview-jump" data-preview-diff="${diff.id}">문서에서 보기 ↗</button>` : ''}</div>
+    ${diff.moved ? `<p class="move-note">${escapeHtml(moveNote(diff))}</p>` : ''}
     ${(diff.structureChanges ?? []).map(s => `<p class="structure-note">${escapeHtml(s.path)} · ${escapeHtml(structureLabel(s.before))} → ${escapeHtml(structureLabel(s.after))}. 동일한 문구의 분류 변경이며 본문 삭제·추가로 집계하지 않습니다.</p>`).join('')}
     ${diff.counterpart ? `<p class="counterpart-note">같은 제목의 대응 후보: ${escapeHtml(diff.counterpart.label)} · 항목 ${diff.counterpart.id}${navigation ? ` <button type="button" data-compare-counterpart="${diff.id}">나란히 비교</button>` : ''}</p>` : ''}
     ${textSummary(diff) ? `<p class="edit-summary">${escapeHtml(textSummary(diff))}</p>` : ''}
     ${!diff.cells.length && changeReason(diff) ? `<p class="change-reason">${escapeHtml(changeReason(diff))}</p>` : ''}
     ${segmented ? segmentedComparison(diff, navigation || focus) : compact ? renderChangedCells(diff, query) : ''}
-    ${segmented || compact || diff.type === 'unchanged' && !query ? `<details class="full-context"><summary>${diff.before?.table || diff.after?.table ? '전체 표 펼치기 · 동일한 셀 포함' : '전체 내용 펼치기'}</summary>${columns}</details>` : columns}
+    ${segmented || compact || ['unchanged', 'moved'].includes(diff.type) && !query ? `<details class="full-context"><summary>${diff.before?.table || diff.after?.table ? '전체 표 펼치기 · 동일한 셀 포함' : '전체 내용 펼치기'}</summary>${columns}</details>` : columns}
   </article>`;
 }
 
@@ -302,11 +313,12 @@ export function formattingHtml(formatting, navigation = false) {
 export function exportHtml(result) {
   const changes = result.diffs.filter(d => d.type !== 'unchanged');
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>문서 신구대조표</title><style>
-  body{font:16px/1.7 "Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;color:#19202C;margin:40px auto;max-width:1100px;padding:0 24px}h1{font-size:28px;color:#0A46A5}p{overflow-wrap:anywhere}.diff-card{border:1px solid #DCE2E8;border-radius:8px;margin:20px 0;break-inside:avoid;overflow:hidden}.diff-heading{padding:10px 16px;background:#F5F7F9;display:flex;gap:14px}.diff-columns{display:grid;grid-template-columns:1fr 1fr}.diff-columns section{padding:16px;min-width:0}.before{border-right:1px solid #DCE2E8}.location,.table-meta{font-size:12px;color:#67717C}.block-text,td{white-space:pre-wrap;overflow-wrap:anywhere}mark{color:inherit;border-radius:2px}.removed{background:#F8D5DE}.added{background:#CBF0E8}.type-badge{font-size:12px;padding:1px 8px;border-radius:4px}.modified{background-color:#FFF4D8}.diff-card.modified{background:white}.doc-table{width:100%;border-collapse:collapse;font-size:16px}td{border:1px solid #DCE2E8;padding:8px}.cell-before{background:#FCE9ED}.cell-after{background:#E2F7F3}.merge-note{display:block;color:#8c510d}.empty-block{color:#888}.parse-warning{background:#FFFBF1;padding:16px}.table-scroll{overflow:auto}.footnote{font-size:12px}.change-reason{margin:0;padding:6px 16px;background:#FFFBF1;color:#875600;font-size:13px}li{margin:5px 0}@media print{body{max-width:none;margin:0;padding:0;font-size:11px}.diff-card{break-inside:auto}mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}}@page{size:A4 landscape;margin:12mm}
+  body{font:16px/1.7 "Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;color:#19202C;margin:40px auto;max-width:1100px;padding:0 24px}h1{font-size:28px;color:#0A46A5}p{overflow-wrap:anywhere}.diff-card{border:1px solid #DCE2E8;border-radius:8px;margin:20px 0;break-inside:avoid;overflow:hidden}.diff-heading{padding:10px 16px;background:#F5F7F9;display:flex;gap:14px}.diff-columns{display:grid;grid-template-columns:1fr 1fr}.diff-columns section{padding:16px;min-width:0}.before{border-right:1px solid #DCE2E8}.location,.table-meta{font-size:12px;color:#67717C}.block-text,td{white-space:pre-wrap;overflow-wrap:anywhere}mark{color:inherit;border-radius:2px}.removed{background:#F8D5DE}.added{background:#CBF0E8}.type-badge{font-size:12px;padding:1px 8px;border-radius:4px}.modified{background-color:#FFF4D8}.diff-card.modified{background:white}.doc-table{width:100%;border-collapse:collapse;font-size:16px}td{border:1px solid #DCE2E8;padding:8px}.cell-before{background:#FCE9ED}.cell-after{background:#E2F7F3}.merge-note{display:block;color:#8c510d}.empty-block{color:#888}.parse-warning{background:#FFFBF1;padding:16px}.table-scroll{overflow:auto}.footnote{font-size:12px}.move-note{margin:0;padding:6px 16px;background:#EDF3FC;color:#0A46A5;font-size:13px}.change-reason{margin:0;padding:6px 16px;background:#FFFBF1;color:#875600;font-size:13px}li{margin:5px 0}@media print{body{max-width:none;margin:0;padding:0;font-size:11px}.diff-card{break-inside:auto}mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}}@page{size:A4 landscape;margin:12mm}
   .memo-card,.format-card{border:1px solid #DCE2E8;margin:18px 0;break-inside:avoid}.memo-card section,.format-card section{padding:14px}.memo-text,.format-excerpt{white-space:pre-wrap;overflow-wrap:anywhere}.memo-context,.memo-meta{padding:10px;font-size:12px}.memo-scope,.format-scope{font-size:12px;color:#67717C}.format-values{width:100%;border-collapse:collapse}.format-values th,.format-values td{border:1px solid #DCE2E8;padding:8px;text-align:left}.format-text{background:#DAEBFA}.color-swatch{width:12px;height:12px;margin-right:6px}
   </style></head><body><h1>문서 신구대조표</h1><p>구버전: ${escapeHtml(result.documents.before.name)}<br>신버전: ${escapeHtml(result.documents.after.name)}</p>
   <p>추가 ${result.stats.added}항목 · 삭제 ${result.stats.removed}항목 · 수정 ${result.stats.modified}항목 · 동일 ${result.stats.unchanged}항목 (문단·표 기준)</p>
   ${result.structureStats?.changed ? `<p>제목·문단 구조 변경 ${result.structureStats.changed}개 · 본문 추가/삭제와 별도 집계</p>` : ''}
+  ${result.moveStats?.moved ? `<p>위치 이동 ${result.moveStats.moved}개 · 같은 내용끼리 연결해 비교했습니다. 내용이 같으면 동일, 바뀌었으면 수정에 집계합니다.</p>` : ''}
   <p>${escapeHtml(result.engine)} · ${escapeHtml(result.createdAt)} · 실제 내용의 일치 여부로 판정</p>
   ${warningsHtml(result)}<ul>${result.limitations.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
   ${result.annotations ? annotationsHtml(result.annotations) : ''}

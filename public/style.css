@@ -659,3 +659,9 @@ html { scrollbar-gutter:stable; }
 .progress-line { display:flex; flex-wrap:wrap; gap:4px; margin:0; font-size:16px; }
 #progress-meta { color:var(--muted); }
 .progress-hint { margin:8px 0 0; color:var(--muted); font-size:14px; }
+
+/* A block compared with its own earlier version after a move. */
+.type-badge.moved { border-color:var(--blue); background:var(--white); color:var(--blue); }
+.diff-heading .type-badge + .type-badge.moved { margin-left:-8px; }
+.move-note { margin:0; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--blue-tint); color:var(--blue); font-size:14px; }
+#selected-change-detail .move-note { padding:4px 12px; font-size:13px; }

@@ -222,3 +222,30 @@ test('near-identical repeated paragraphs keep exact matches instead of shifting 
   const after = structuredClone(before); after.splice(10, 2);
   assert.deepEqual(compareBlocks(before, after).stats, { added: 0, removed: 2, modified: 0, unchanged: 28 });
 });
+
+test('swapped case tables are linked to their own earlier version and reported as moves', () => {
+  const caseTable = (label, title, body) => ({ type: 'table', table: { rows: 3, cols: 1, cells: [[cell(label)], [cell(title)], [cell(body)]] } });
+  const proposal = ['AI 기반 민관협력사업 공모 제안서 작성 솔루션 PropoJAL 도입계획 수립', '민관협력사업 공모 제안서 작성을 돕는 솔루션을 도입하고 부서별 활용 계획을 수립하였다.'];
+  const overlap = ['무상원조 유사사업 중복성 검사 AI 에이전트 고도화 및 업무연계', '사업 기획 단계에서 유사사업 중복 여부를 자동으로 확인하도록 에이전트를 개선하였다.'];
+  const before = [paragraph('□ 추진실적'), caseTable('실적②', ...proposal), caseTable('실적③', ...overlap)];
+  const after = [paragraph('□ 추진실적'), caseTable('실적②', overlap[0], overlap[1].replace('개선하였다', '개선하고 업무시스템과 연계하였다')), caseTable('실적③', proposal[0].replace('도입계획 수립', '도입·활용'), proposal[1])];
+  const result = compareBlocks(before, after);
+  const [first, second] = result.diffs.slice(1);
+  assert.equal(result.moveStats.moved, 2);
+  assert.ok(first.moved && second.moved);
+  assert.match(first.before.table.cells[1][0].text, /유사사업/); assert.match(first.after.table.cells[1][0].text, /유사사업/);
+  assert.match(second.before.table.cells[1][0].text, /PropoJAL/); assert.match(second.after.table.cells[1][0].text, /PropoJAL/);
+  assert.equal(second.movedAfter, 1, 'PropoJAL followed item 1 in the old version');
+  assert.equal(first.cells.length, 2, 'only the renumbered label and the edited sentence differ');
+  const html = renderDiff(first, { before: {}, after: {} }, true);
+  assert.match(html, /위치 이동 · 구버전에서는 항목 3 다음에 있었습니다/);
+});
+
+test('short repeated labels are not linked across the document as moves', () => {
+  const long = n => paragraph(`${n}번째 실적은 부서별 데이터 분석 결과를 정책에 반영한 과정을 설명합니다.`);
+  const result = compareBlocks([paragraph('증빙3-1'), long(1), long(2)], [long(1), long(2), paragraph('증빙3-3')]);
+  assert.equal(result.moveStats.moved, 0);
+  assert.deepEqual(result.stats, { added: 1, removed: 1, modified: 0, unchanged: 2 });
+  const moved = compareBlocks([paragraph('ㅇ 평가팀 구성'), long(1), long(2)], [long(1), long(2), paragraph('ㅇ 평가팀 구성')]);
+  assert.equal(moved.diffs.find(d => d.moved)?.type, 'moved', 'an identical unique heading can still move');
+});

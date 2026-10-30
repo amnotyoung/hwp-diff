@@ -45,3 +45,12 @@ test('the selected inner segment determines placement rather than the containing
   const p = reviewPresence(6, { old: [location], new: [location] }, { old: 4, new: 4 }, {}, 1);
   assert.equal(p.offscreen, true); assert.equal(p.onPage, false);
 });
+
+test('the move filter appears only when moves exist and keeps moved edits and pure moves', () => {
+  assert.ok(!reviewFilters(result, 'content').some(f => f.value === 'moved'));
+  const moved = { ...result, moveStats: { moved: 2 }, diffs: [...result.diffs, { id: 3, type: 'moved', moved: true, before: { text: 'A' }, after: { text: 'A' } }, { id: 4, type: 'modified', moved: true, before: { text: 'B' }, after: { text: 'B2' } }] };
+  assert.deepEqual(reviewFilters(moved, 'content').find(f => f.value === 'moved'), { value: 'moved', label: '이동', count: 2 });
+  assert.deepEqual(reviewItems(moved, 'content', { filter: 'changes', query: '' }).map(d => d.id), [1, 3, 4]);
+  assert.deepEqual(reviewItems(moved, 'content', { filter: 'modified', query: '' }).map(d => d.id), [1, 4]);
+  assert.ok(!reviewFilters(moved, 'format').some(f => f.value === 'moved'));
+});

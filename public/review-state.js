@@ -26,13 +26,13 @@ export function reviewItems(result, mode, condition, navigation = false) {
   const query = condition.query.trim().toLocaleLowerCase();
   return allReviewItems(result, mode).filter(item => {
     const typeMatches = mode === 'format' ? condition.filter === 'all' || item.changes.some(c => c.property === condition.filter)
-      : condition.filter === 'all' || (condition.filter === 'changes' ? item.type !== 'unchanged' : item.type === condition.filter);
+      : condition.filter === 'all' || (condition.filter === 'changes' ? item.type !== 'unchanged' : condition.filter === 'moved' ? !!item.moved : item.type === condition.filter);
     return typeMatches && (!navigation || mode !== 'content' || item.type !== 'unchanged') && (!query || reviewItemText(item, mode).toLocaleLowerCase().includes(query));
   });
 }
 export function reviewFilters(result, mode) {
   const definitions = mode === 'format' ? [['all', '전체'], ['color', '글자색'], ['font', '글꼴'], ['spacing', '자간'], ['ratio', '장평']]
-    : [['changes', '변경만'], ['all', '전체'], ['added', '추가'], ['removed', '삭제'], ['modified', '수정'], ...(mode === 'content' ? [['structure', '구조']] : [])];
+    : [['changes', '변경만'], ['all', '전체'], ['added', '추가'], ['removed', '삭제'], ['modified', '수정'], ...(mode === 'content' ? [['structure', '구조']] : []), ...(mode === 'content' && result?.moveStats?.moved ? [['moved', '이동']] : [])];
   return definitions.map(([value, label]) => ({ value, label, count: reviewItems(result, mode, { filter: value, query: '' }).length }));
 }
 

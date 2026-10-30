@@ -191,6 +191,7 @@ function showResults() {
   if (formatCount) $('#result-title').textContent = `내용 변경 항목 ${total}개 · 서식 변경 구간 ${formatCount}개${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
   if (changed.length === 1 && !memoChanges && !formatCount) $('#result-title').textContent = `${changed[0].before?.table || changed[0].after?.table ? '표' : '문단'} 1개 변경${textSummary(changed[0]) ? ' · ' + textSummary(changed[0]) : ''}`;
   if (result.structureStats?.changed) $('#result-title').textContent = `내용 변경 항목 ${total}개 · 구조 변경 ${result.structureStats.changed}개${formatCount ? ` · 서식 변경 구간 ${formatCount}개` : ''}${memoChanges ? ` · 메모 변경 ${memoChanges}개` : ''}`;
+  if (result.moveStats?.moved) $('#result-title').textContent += ` · 위치 이동 ${result.moveStats.moved}개`;
   if (isDemo) $('#result-title').textContent += ' (샘플)';
   $('#result-title').title = $('#result-title').textContent;
   renderFilters();
