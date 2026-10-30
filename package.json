@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "폐쇄망용 HWP·HWPX 문서 신구대조 프로그램",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

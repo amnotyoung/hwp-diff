@@ -173,3 +173,7 @@ Mac DMG는 macOS의 `clang`, `codesign`, `hdiutil`로 만듭니다. Windows EXE�
 빌드 도구와 중간 파일은 `.build-cache/`, 배포 파일은 `dist/`에 만들며 Git에서 제외합니다. 명시적 포함 목록(`src`, `public`, 고정된 JS 의존성, `package.json`, `package-lock.json`, `README.md`)만 앱에 넣으므로 문서·테스트·`.git`·`.env`·개발 산출물은 들어가지 않습니다. 네이티브 의존성이 발견되면 빌드를 중단합니다.
 
 포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-arm64-build-info.json`과 `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.
+
+## 라이선스
+
+[MIT](LICENSE). 함께 배포하는 의존성(Kordoc 등)과 Node.js·NSIS는 각자의 라이선스를 따르며, 배포 파일 안에 라이선스 문서를 포함합니다.
