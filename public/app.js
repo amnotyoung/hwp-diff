@@ -628,7 +628,9 @@ const detailScrolls = new Map();
 function showSelectedDetail() {
   const item = selectedItem(), id = activeFocusId(), segment = review.mode === 'content' ? segmentSelections.get(id) ?? 0 : 0;
   $('#preview-explanation-text').innerHTML = item ? previewExplanation(item, review.mode, segment) : `<p>${escapeHtml(emptyReviewMessage())}</p>`;
-  $('#expand-explanation').disabled = !item;
+  // With nothing selected there is no detail to open; a disabled button would
+  // only cover the guidance text on narrow screens.
+  $('#expand-explanation').disabled = !item; $('#expand-explanation').hidden = !item;
   updateSegmentControls();
   const key = `${review.mode}:${id}:${segment}:${item ? '' : emptyReviewMessage()}`;
   if (detailRenderKey !== key) {
@@ -756,7 +758,7 @@ function updateVisibleSelection() {
     $('#preview-selection-status').textContent = emptyReviewMessage();
     $('#preview-explanation-text').innerHTML = `<p>${escapeHtml(emptyReviewMessage())}</p>`;
     const empty = $('#selected-change-detail .review-empty'); if (empty) empty.textContent = emptyReviewMessage();
-    $('#preview-go-selection').hidden = true;
+    $('#preview-go-selection').hidden = true; $('#expand-explanation').hidden = true;
     $('#preview-jump').disabled = true; $('#preview-location-details').hidden = true;
     for (const side of ['old', 'new']) { $(`#${side}-position-note`).hidden = true; updatePreviewNotice(side); }
     return;
