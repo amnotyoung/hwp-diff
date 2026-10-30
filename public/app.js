@@ -476,7 +476,7 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
     previewPages[side] = data.page;
     img.src = data.image; $(`#${side}-canvas`).hidden = false; message.hidden = true;
     $(`#${side}-page`).max = String(data.totalPages);
-    $(`#${side}-page`).setCustomValidity('');
+    $(`#${side}-page`).setCustomValidity(''); clearPageError(side);
     $(`#${side}-page`).value = String(data.page);
     $(`#${side}-page-count`).textContent = `/ ${data.totalPages}`;
     updatePreviewNotice(side);
@@ -492,8 +492,12 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
     $(`#${side}-page`).value = String(previewPages[side]);
   }
 }
+// A page-number error describes one rejected input. Any later page movement
+// on that side, or selecting another change, makes it stale.
+function clearPageError(side) { const error = $(`#${side}-page-error`); error.hidden = true; error.textContent = ''; }
 async function showPreview(pages = { ...previewPages }, note = '', jump = false) {
   if (!result || controller) return;
+  if (jump) for (const side of ['old', 'new']) clearPageError(side);
   setView(true); controller = new AbortController(); setBusy(true, true);
   const requestedQuery = queryText(), requestedFocus = activeFocusId();
   showSelectedDetail();
@@ -566,12 +570,12 @@ for (const side of ['old', 'new']) {
     if (!checked.valid || checked.page === previewPages[side]) return;
     showPreview({ [side]: checked.page });
   };
-  input.addEventListener('input', () => { edited = true; input.setCustomValidity(''); $(`#${side}-page-error`).hidden = true; });
+  input.addEventListener('input', () => { edited = true; input.setCustomValidity(''); clearPageError(side); });
   input.addEventListener('change', go);
   input.addEventListener('blur', go);
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); go(); } });
-  $(`#${side}-prev`).addEventListener('click', () => showPreview({ [side]: previewPages[side] - 1 }));
-  $(`#${side}-next`).addEventListener('click', () => showPreview({ [side]: previewPages[side] + 1 }));
+  $(`#${side}-prev`).addEventListener('click', () => { clearPageError(side); showPreview({ [side]: previewPages[side] - 1 }); });
+  $(`#${side}-next`).addEventListener('click', () => { clearPageError(side); showPreview({ [side]: previewPages[side] + 1 }); });
 }
 
 let detailRenderKey = null;
