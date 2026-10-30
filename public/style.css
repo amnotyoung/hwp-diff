@@ -542,7 +542,7 @@ html { scrollbar-gutter:stable; }
 .search-popover { position:absolute; z-index:60; top:calc(100% + 8px); right:0; width:420px; max-width:calc(100vw - 32px); padding:16px; background:var(--white); border:1px solid var(--line); border-radius:4px; box-shadow:0 3px 12px #19202c18; }
 .search-popover .search-controls { display:flex; flex-wrap:nowrap; gap:8px; margin:0; }
 .search-popover #search { flex:1; min-width:0; width:100px; }
-.search-popover #search-count { display:block; max-width:none; margin-top:8px; white-space:normal; font-size:13px; }
+.search-popover #search-count { display:block; max-width:none; margin-top:8px; white-space:pre-line; font-size:13px; }
 .preview-actions { order:4; display:flex; flex-shrink:0; align-items:center; gap:var(--control-gap); }
 #preview-zoom { width:124px; height:44px; min-height:44px; padding:6px 24px 6px 8px; font-size:14px; line-height:1.5; }
 #toggle-details { min-width:52px; }

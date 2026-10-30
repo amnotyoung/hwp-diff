@@ -291,6 +291,7 @@ function emptyReviewMessage() {
   const mode = REVIEW_LABELS[review.mode];
   if (!modeAvailable()) return `${mode}은 검사하지 못했습니다. 목록에서 안내를 확인하세요.`;
   const items = currentItems(true), total = reviewItems(result, review.mode, { filter: review.mode === 'format' || filter === 'all' ? 'all' : 'changes', query: '' }, review.mode === 'content' && filter !== 'all').length;
+  if (!items.length && total && queryText()) return `검색어가 포함된 ${mode} 변경은 없습니다. 검색을 지우면 ${mode} 변경 ${total}개를 볼 수 있습니다.`;
   if (!items.length) return total ? `현재 조건에 맞는 ${mode} 변경이 없습니다.` : `문서 전체에 ${mode} 변경이 없습니다.`;
   if (!previewOpened) return `${mode} 변경 ${items.length}개 중 항목을 선택하세요.`;
   const onPage = items.filter(item => presence(item.id).onPage).length, unknown = items.filter(item => presence(item.id).unresolved || presence(item.id).pending).length;
@@ -300,7 +301,7 @@ function updateNavigator() {
   const { category, items, id } = navigationContext();
   const active = items.some(d => d.id === id) ? id : null;
   review.selections[category] = active;
-  const position = items.findIndex(d => d.id === active), scope = category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : filter === 'all' ? '내용 항목' : '내용 변경';
+  const position = items.findIndex(d => d.id === active), scope = `${queryText() ? '검색어 포함 ' : ''}${category === 'format' ? '서식 변경' : category === 'memo' ? '메모 변경' : filter === 'all' ? '내용 항목' : '내용 변경'}`;
   const description = d => category === 'format' ? `${d.changes.map(c => c.label).join('·')} · ${d.text}` : category === 'memo' ? `${labels[d.type]} · ${(d.after ?? d.before).text}` : `${labels[d.type]} · 항목 ${d.id} · ${blockText(d.after ?? d.before)}`;
   const placeholder = !modeAvailable() ? `${REVIEW_LABELS[category]} 미검사` : items.length ? `${scope} ${items.length}개 · 항목 선택` : `${scope} 없음`;
   $('#change-list').innerHTML = `<option value=""${items.length ? ' disabled' : ''}>${placeholder}</option>` + items.map((d, i) => {
@@ -833,11 +834,16 @@ function updateSearchControls() {
   const preview = review.view === 'preview', hits = searchHits();
   const query = queryText();
   const total = currentItems().length;
+  // In the original view one query does two separate things: it finds text in
+  // the whole document and it narrows the current review list. Name both.
   $('#search-count').textContent = query ? searchPending ? '검색 중…' : preview
-    ? `원본 전체에서 ${hits.length}개 문단 일치 · ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
+    ? `원본 찾기: ${hits.length}개 문단 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}\n${REVIEW_LABELS[review.mode]} 목록: ${total ? `검색어 포함 ${total}개만 표시` : '검색어 포함 항목 없음 · 검색을 지우면 전체 표시'}`
     : review.mode === 'content' ? `전체 검색 결과 ${total}개 항목 · ${hits.length}곳 일치 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}`
       : `${REVIEW_LABELS[review.mode]} 검색 결과 ${hits.length}개 · 이동 ${searchIndex >= 0 ? searchIndex + 1 : 0}/${hits.length}` : '';
-  $('#search-count').title = preview ? '원본 전체 문서 기준' : '선택한 변경 유형의 전체 결과를 검색합니다. 아직 표시되지 않은 항목도 자동으로 불러와 이동합니다.';
+  $('#search-count').title = preview ? '이전·다음은 원본 전체 문서의 일치 문단으로 이동합니다. 변경 목록은 검색어가 포함된 항목만 표시합니다.' : '선택한 변경 유형의 전체 결과를 검색합니다. 아직 표시되지 않은 항목도 자동으로 불러와 이동합니다.';
+  $('#search').placeholder = preview ? '원본에서 찾기' : `${REVIEW_LABELS[review.mode]} 목록에서 찾기`;
+  $('#previous-match').setAttribute('aria-label', preview ? '원본의 이전 일치' : '이전 일치');
+  $('#next-match').setAttribute('aria-label', preview ? '원본의 다음 일치' : '다음 일치');
   $('#previous-match').disabled = !query || !hits.length || !!controller || searchPending;
   $('#next-match').disabled = !query || !hits.length || !!controller || searchPending;
   $('#toggle-search').classList.toggle('has-query', !!query);
