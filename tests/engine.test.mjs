@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { compareBlocks, compareDocuments, content } from '../src/engine.mjs';
+import { compareBlocks, compareDocuments, content, alignBlocks } from '../src/engine.mjs';
 import { sampleFiles } from '../src/sample-data.mjs';
 import { diffBlocks, markdownToHwpx } from 'kordoc';
 import { escapeHtml, highlight, exportHtml, renderDiff } from '../public/report.js';
@@ -201,4 +201,24 @@ test('identical visible cell text that still differs explains why it counts as c
   assert.match(renderDiff(diff, { before: {}, after: {} }, true), /문구는 같고 셀 안의 문단 나눔이 다릅니다/);
   const spaced = compareBlocks([table([['예산 100']])], [table([['예산 100']])]).diffs[0];
   assert.match(renderDiff(spaced, { before: {}, after: {} }, true), /보이지 않는 문자만 다릅니다/);
+});
+
+test('anchoring unique identical blocks keeps Kordoc pairing for distinct paragraphs', () => {
+  const topics = ['예산 집행', '인력 채용', '장비 구매', '교육 운영', '현지 협의', '성과 측정', '위험 관리', '보고 일정', '홍보 활동', '사후 관리', '계약 변경', '감사 대응'];
+  const sentence = n => `${topics[n % topics.length]} 항목 ${'가나다라마바사아자차카타파하'.slice(n % 14)} ${n * 37 % 101}건 ${'○'.repeat(n % 5)}`;
+  const before = Array.from({ length: 48 }, (_, n) => paragraph(sentence(n)));
+  const after = structuredClone(before);
+  after.splice(10, 2);
+  after.splice(20, 0, paragraph('새로 추가한 협의 결과 문단입니다.'), paragraph(''));
+  after[30].text += ' (수정)';
+  after.splice(40, 0, after.splice(5, 1)[0]);
+  before.push(paragraph(''), paragraph('')); after.push(paragraph(''));
+  const pairs = diffs => diffs.map(d => [before.indexOf(d.before), after.indexOf(d.after)].join(':'));
+  assert.deepEqual(pairs(alignBlocks(before, after).diffs), pairs(diffBlocks(before, after).diffs));
+});
+
+test('near-identical repeated paragraphs keep exact matches instead of shifting into edits', () => {
+  const before = Array.from({ length: 30 }, (_, n) => paragraph(`${n}번 문단은 사업 추진 실적과 향후 계획을 정리합니다.`));
+  const after = structuredClone(before); after.splice(10, 2);
+  assert.deepEqual(compareBlocks(before, after).stats, { added: 0, removed: 2, modified: 0, unchanged: 28 });
 });

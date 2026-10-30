@@ -87,6 +87,36 @@ function structureChanges(before, after, path = '본문') {
   return changes;
 }
 
+// Longest chain of anchor pairs whose positions increase in both versions.
+function increasingChain(pairs) {
+  const tails = [], previous = new Array(pairs.length);
+  pairs.forEach(([, j], index) => {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (pairs[tails[mid]][1] < j) lo = mid + 1; else hi = mid; }
+    previous[index] = lo ? tails[lo - 1] : -1; tails[lo] = index;
+  });
+  const chain = [];
+  for (let k = tails.at(-1) ?? -1; k >= 0; k = previous[k]) chain.push(pairs[k]);
+  return chain.reverse();
+}
+// Kordoc's alignment checks every pair of blocks, which took 15 seconds for
+// two 150-page reports. Blocks identical in both versions and occurring once
+// in each are fixed first; Kordoc then aligns only the gaps between them.
+export function alignBlocks(a, b) {
+  const keyA = a.map(block => JSON.stringify(block)), keyB = b.map(block => JSON.stringify(block));
+  const count = keys => keys.reduce((counts, key) => counts.set(key, (counts.get(key) ?? 0) + 1), new Map());
+  const countA = count(keyA), countB = count(keyB), positionB = new Map(keyB.map((key, j) => [key, j]));
+  const anchors = increasingChain(keyA.flatMap((key, i) => countA.get(key) === 1 && countB.get(key) === 1 ? [[i, positionB.get(key)]] : []));
+  const diffs = [];
+  let ai = 0, bi = 0;
+  for (const [i, j] of [...anchors, [a.length, b.length]]) {
+    if (i > ai || j > bi) diffs.push(...diffBlocks(a.slice(ai, i), b.slice(bi, j)).diffs);
+    if (i < a.length) diffs.push({ before: a[i], after: b[j] });
+    ai = i + 1; bi = j + 1;
+  }
+  return { diffs };
+}
+
 export function compareBlocks(before, after, metadata = {}) {
   if (before.length > 2000 || after.length > 2000 || before.length * after.length > 2_000_000) {
     throw new Error('문단 수가 첫 버전의 처리 한도를 넘습니다. 문서를 나누어 비교해 주세요.');
@@ -99,7 +129,7 @@ export function compareBlocks(before, after, metadata = {}) {
     const alignment = { ...projected, text: raw.type === 'table' ? undefined : projected.text };
     originals.set(alignment, raw); return alignment;
   });
-  const aligned = diffBlocks(comparable(before), comparable(after));
+  const aligned = alignBlocks(comparable(before), comparable(after));
   const stats = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   const oldIndexes = new Map(before.map((b, i) => [b, i + 1]));
   const newIndexes = new Map(after.map((b, i) => [b, i + 1]));
