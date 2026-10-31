@@ -2,6 +2,8 @@
 
 폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. 주식회사 한컴(한글과컴퓨터)과 관계없는 개인 프로젝트이며, HWP는 주식회사 한컴의 등록상표입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
 
+![HWP diff 사용 설명 영상](./docs/hwp-diff-guide-50s.webp)
+
 ## 사용자 배포 파일
 
 - **macOS (Apple Silicon):** `HWP diff (Apple Silicon).dmg`를 열고 `HWP diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
