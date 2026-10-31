@@ -1,6 +1,6 @@
 {
   "name": "hwp-diff",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "폐쇄망용 HWP·HWPX 문서 신구대조 프로그램",
