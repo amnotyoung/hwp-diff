@@ -1080,7 +1080,7 @@ window.addEventListener('keydown', event => {
       session = new EventSource('/api/session');
       session.onerror = () => {
         session?.close(); session = null;
-        if (!exiting) showError('프로그램 연결이 끊겼습니다. 다시 사용하려면 한컴 diff를 실행하세요.');
+        if (!exiting) showError('프로그램 연결이 끊겼습니다. 다시 사용하려면 HWP diff를 실행하세요.');
       };
     };
     connect();

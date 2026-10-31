@@ -61,7 +61,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.once('SIGINT', app.stop); process.once('SIGTERM', app.stop);
     }
   } catch (error) {
-    console.error(`한컴 diff를 실행하지 못했습니다. ${error.message}`);
+    console.error(`HWP diff를 실행하지 못했습니다. ${error.message}`);
     process.exitCode = 1;
   }
 }

@@ -13,7 +13,7 @@ for (const [arch, input] of Object.entries(inputs.macArchives)) {
   await mkdir(runtime, { recursive: true }); command('tar', ['-xzf', path, '-C', runtime, '--strip-components=1']);
   const { stage, manifest } = await preparePayload(`mac-${arch}`);
   const imageRoot = join(cache, `mac-image-${arch}`); await rm(imageRoot, { recursive: true, force: true }); await mkdir(imageRoot, { recursive: true });
-  const app = join(imageRoot, '한컴 diff.app'), contents = join(app, 'Contents'), resources = join(contents, 'Resources');
+  const app = join(imageRoot, 'HWP diff.app'), contents = join(app, 'Contents'), resources = join(contents, 'Resources');
   await mkdir(join(contents, 'MacOS'), { recursive: true }); await mkdir(resources, { recursive: true });
   await cp(stage, join(resources, 'app'), { recursive: true });
   const dest = join(resources, `runtime-${arch}`); await mkdir(dest);
@@ -22,13 +22,13 @@ for (const [arch, input] of Object.entries(inputs.macArchives)) {
   await writeFile(join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>local.hancomdiff.app</string>
-<key>CFBundleName</key><string>한컴 diff</string><key>CFBundleDisplayName</key><string>한컴 diff</string>
-<key>CFBundleExecutable</key><string>HancomDiff</string><key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIdentifier</key><string>local.hwpdiff.app</string>
+<key>CFBundleName</key><string>HWP diff</string><key>CFBundleDisplayName</key><string>HWP diff</string>
+<key>CFBundleExecutable</key><string>HWPDiff</string><key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>${pkg.version}</string><key>CFBundleShortVersionString</key><string>${pkg.version}</string>
 <key>LSMinimumSystemVersion</key><string>11.0</string><key>LSUIElement</key><true/>
 </dict></plist>`);
-  const launcher = join(contents, 'MacOS/HancomDiff');
+  const launcher = join(contents, 'MacOS/HWPDiff');
   command('clang', ['-arch', target.clang, '-mmacosx-version-min=11.0', '-Os', join(root, 'packaging/mac-launcher.c'), '-o', launcher]);
   command('codesign', ['--force', '--sign', '-', '--timestamp=none', app]);
   command('codesign', ['--verify', '--strict', app]);
@@ -41,9 +41,9 @@ for (const [arch, input] of Object.entries(inputs.macArchives)) {
     if (!runtimeTest.ok) throw new Error('Mac 앱 자체 검증 실패');
   }
   await symlink('/Applications', join(imageRoot, 'Applications'));
-  const output = join(out, `한컴 diff (${target.label}).dmg`);
+  const output = join(out, `HWP diff (${target.label}).dmg`);
   console.log(`Mac ${target.label} DMG 생성`);
-  command('hdiutil', ['create', '-volname', '한컴 diff', '-srcfolder', imageRoot, '-format', 'UDZO', '-ov', output]);
+  command('hdiutil', ['create', '-volname', 'HWP diff', '-srcfolder', imageRoot, '-format', 'UDZO', '-ov', output]);
   command('hdiutil', ['verify', output]);
   const dmg = await readFile(output);
   const release = { ...manifest, files: manifest.files.length, bytes: dmg.length, sha256: hash(dmg), signing: 'ad-hoc', notarized: false, runtimeTest };

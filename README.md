@@ -1,11 +1,11 @@
-# 한컴 diff · hwp-diff
+# HWP diff
 
-폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
+폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. 주식회사 한컴(한글과컴퓨터)과 관계없는 개인 프로젝트이며, HWP는 주식회사 한컴의 등록상표입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
 
 ## 사용자 배포 파일
 
-- **macOS (Apple Silicon):** `한컴 diff (Apple Silicon).dmg`를 열고 `한컴 diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
-- **Windows x64:** `한컴 diff.exe` 한 파일을 실행합니다. 설치 과정은 없으며, 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
+- **macOS (Apple Silicon):** `HWP diff (Apple Silicon).dmg`를 열고 `HWP diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
+- **Windows x64:** `HWP diff.exe` 한 파일을 실행합니다. 설치 과정은 없으며, 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
 - 두 버전 모두 로컬 전용 빈 포트를 자동으로 고릅니다. 화면의 **프로그램 종료**(첫 화면 상단, 결과 화면의 ⋯ 메뉴)를 누르거나 마지막 앱 탭을 닫으면 종료합니다. 탭을 닫은 경우 새로고침을 고려해 약 10초 뒤 종료합니다.
 - 배포 파일은 GitHub 저장소의 Releases에서 받습니다. v0.1.0은 Windows PC와 Apple Silicon Mac에서 설치·실행을 확인했습니다. Apple Silicon DMG는 빌드할 때 포함 런타임의 비교·렌더 실행도 검증합니다.
 
@@ -15,18 +15,18 @@
 
 **Windows**
 
-- 실행하기 전에 `한컴 diff.exe`를 우클릭 → **속성** → 일반 탭 아래쪽의 **차단 해제**를 체크 → **확인**. 이후 경고 없이 실행됩니다.
+- 실행하기 전에 `HWP diff.exe`를 우클릭 → **속성** → 일반 탭 아래쪽의 **차단 해제**를 체크 → **확인**. 이후 경고 없이 실행됩니다.
 - 또는 파란 “Windows의 PC 보호” 화면에서 **추가 정보**를 누른 뒤 **실행**을 누릅니다.
 - 회사 PC 정책이 서명 없는 실행 파일을 막으면 두 방법 모두 동작하지 않습니다. 전산팀에 허용을 요청하세요.
 
 **Mac**
 
-1. `한컴 diff.app`을 Applications로 옮긴 뒤 한 번 실행합니다. 차단 안내가 뜨면 **완료**를 눌러 닫습니다.
-2. **시스템 설정 → 개인정보 보호 및 보안**을 열고 아래쪽 ‘한컴 diff’ 항목의 **그래도 열기**를 누른 뒤, 확인 창에서 **열기**를 누릅니다. macOS 15 이후에는 Finder 우클릭 → 열기로는 열리지 않습니다.
+1. `HWP diff.app`을 Applications로 옮긴 뒤 한 번 실행합니다. 차단 안내가 뜨면 **완료**를 눌러 닫습니다.
+2. **시스템 설정 → 개인정보 보호 및 보안**을 열고 아래쪽 ‘HWP diff’ 항목의 **그래도 열기**를 누른 뒤, 확인 창에서 **열기**를 누릅니다. macOS 15 이후에는 Finder 우클릭 → 열기로는 열리지 않습니다.
 3. **그래도 열기**가 보이지 않으면 터미널에서 아래 명령을 한 번 실행합니다. 인터넷에서 받은 파일에 붙는 격리 표시를 지웁니다.
 
    ```sh
-   xattr -dr com.apple.quarantine "/Applications/한컴 diff.app"
+   xattr -dr com.apple.quarantine "/Applications/HWP diff.app"
    ```
 
 경고 없이 배포하려면 Mac은 Apple Developer ID 서명과 공증, Windows는 코드서명 인증서가 필요합니다. 회사 안에서만 쓴다면 사내 인증서 서명이나 허용 목록 등록도 방법입니다.

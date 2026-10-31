@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0A46A5">
-  <title>한컴 diff · 신구대조</title>
+  <title>HWP diff · 신구대조</title>
   <link rel="stylesheet" href="./style.css">
   <script src="./launch-guard.js" defer></script>
 </head>
 <body>
   <main id="launch-help" class="launch-help">
-    <h1>한컴 diff를 실행해 주세요</h1>
+    <h1>HWP diff를 실행해 주세요</h1>
     <p>이 HTML 파일은 실행 화면의 일부입니다. 파일을 직접 열면 문서 비교 기능을 사용할 수 없습니다.</p>
     <ol><li>프로젝트 폴더에서 <strong>start-windows.cmd</strong>를 실행하세요.</li><li>자동으로 열리는 브라우저에서 문서를 선택하세요. 실행 창은 사용 중에 열어 두세요.</li></ol>
     <p>이미 실행 중이라면 아래 버튼으로 이동하세요.</p>
@@ -19,7 +19,7 @@
   </main>
   <div id="app-shell" hidden>
   <div class="main-shell">
-    <header class="topbar"><a class="brand" href="/">한컴 diff</a><button type="button" class="button text-button exit-app" hidden>프로그램 종료</button></header>
+    <header class="topbar"><a class="brand" href="/">HWP diff</a><button type="button" class="button text-button exit-app" hidden>프로그램 종료</button></header>
     <main id="workspace">
       <div class="page-heading"><h1>문서 비교</h1><button id="demo" class="button secondary">샘플 비교</button></div>
       <section class="upload-panel" aria-label="비교할 문서 선택">
@@ -42,7 +42,7 @@
       <dialog id="counterpart-dialog"><header><h2 id="counterpart-title">대응 문단 후보</h2><button id="close-counterpart" class="tool-button" aria-label="대응 비교 닫기">×</button></header><p>같은 제목을 기준으로 연결한 후보입니다. 추가·삭제 집계는 유지됩니다.</p><div id="counterpart-body"></div></dialog>
       <section id="results" hidden aria-label="비교 결과">
         <header class="workbench-header">
-          <a class="workbench-brand" href="/">한컴 diff</a>
+          <a class="workbench-brand" href="/">HWP diff</a>
           <details id="file-info-menu" class="workbench-popover"><summary aria-label="비교 파일 정보"><span class="compact-file-label">비교 파일</span><span class="file-summary"><span id="old-summary" aria-label="구버전"></span><span class="summary-arrow">→</span><span id="new-summary" aria-label="신버전"></span></span></summary><div class="popover-body file-info-body"><div class="popover-heading"><strong>비교 파일</strong><button type="button" class="tool-button" data-close-popover aria-label="비교 파일 닫기">×</button></div><div id="menu-file-info"></div></div></details>
           <span id="result-title" class="visually-hidden" role="status"></span>
           <button id="export-html" class="button primary" aria-label="신구대조표 저장 (.html)">저장<span class="export-extension"> (.html)</span></button>

@@ -69,7 +69,7 @@ export async function preparePayload(target, extras = {}) {
   const entries = [];
   for (const path of (await filesUnder(stage)).sort()) entries.push({ path: relative(stage, path).replaceAll('\\', '/'), sha256: hash(await readFile(path)) });
   let revision = 'unknown'; try { revision = command('git', ['rev-parse', 'HEAD']).trim(); } catch {}
-  const manifest = { app: '한컴 diff', version: pkg.version, target, runtime: inputs.nodeVersion, revision, files: entries };
+  const manifest = { app: 'HWP diff', version: pkg.version, target, runtime: inputs.nodeVersion, revision, files: entries };
   await writeFile(join(stage, 'BUILD-MANIFEST.json'), JSON.stringify(manifest, null, 2));
   return { stage, manifest };
 }
