@@ -1,6 +1,6 @@
-import { readFile, writeFile, mkdir, rm, cp, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, cp, copyFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { join, basename, relative, resolve } from 'node:path';
+import { join, basename, relative, resolve, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
@@ -41,6 +41,21 @@ export async function filesUnder(directory) {
   }
   return paths;
 }
+export async function copyPayloadDirectory(source, destination) {
+  const files = await filesUnder(source);
+  const targets = files.map(path => join(destination, relative(source, path)));
+  for (const directory of new Set([destination, ...targets.map(dirname)])) await mkdir(directory, { recursive: true });
+  // Bound concurrent I/O; one slow source file should not stall the entire copy.
+  let next = 0;
+  const results = await Promise.allSettled(Array.from({ length: Math.min(16, files.length) }, async () => {
+    while (next < files.length) {
+      const index = next++;
+      await copyFile(files[index], targets[index]);
+    }
+  }));
+  const failed = results.find(result => result.status === 'rejected');
+  if (failed) throw failed.reason;
+}
 export async function preparePayload(target, extras = {}) {
   const stage = join(cache, `payload-${target}`);
   await mkdir(cache, { recursive: true }); await mkdir(out, { recursive: true });
@@ -54,9 +69,8 @@ export async function preparePayload(target, extras = {}) {
   if (dependencies.some(p => /\.(node|dll|so|dylib)$/i.test(p))) throw new Error('네이티브 의존성이 있습니다. 대상 OS용 의존성 검증이 필요합니다.');
   await rm(stage, { recursive: true, force: true }); await mkdir(stage, { recursive: true });
   // Explicit allowlist: no documents, tests, credentials, .git or prior artifacts.
-  for (const path of ['src', 'public', 'node_modules', 'package.json', 'package-lock.json', 'README.md']) {
-    await cp(join(root, path), join(stage, path), { recursive: true, filter: path => basename(path) !== '.bin' });
-  }
+  for (const path of ['src', 'public', 'node_modules']) await copyPayloadDirectory(join(root, path), join(stage, path));
+  for (const path of ['package.json', 'package-lock.json', 'README.md']) await copyFile(join(root, path), join(stage, path));
   for (const [name, source] of Object.entries(extras)) await cp(source, join(stage, name));
   console.log('포함된 앱으로 문서 비교·렌더링 검증');
   command(process.execPath, ['--input-type=module', '-e', `
