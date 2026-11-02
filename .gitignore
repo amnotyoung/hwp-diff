@@ -9,3 +9,5 @@ private-documents/
 .build-cache/
 dist/
 runtime/
+
+output/playwright/

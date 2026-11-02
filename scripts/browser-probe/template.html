@@ -1,0 +1,41 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none';">
+<title>HWP diff · HTML 실행 검증</title>
+<style>*{box-sizing:border-box}body{font:15px 'Noto Sans KR','맑은 고딕',sans-serif;color:#19202c;background:#f5f7f9;margin:0}main{max-width:1180px;margin:auto;padding:24px}h1{font-size:22px;color:#0a46a5}section{background:white;padding:20px;border:1px solid #dce2e8;border-radius:6px;margin:16px 0}.files,.previews{display:flex;gap:20px}.files>label,.previews>figure{flex:1;min-width:0}input{display:block;margin-top:10px;max-width:100%}button{background:#0a46a5;color:white;border:0;border-radius:4px;padding:10px 18px;margin:12px 8px 0 0}button:disabled{opacity:.5}p{line-height:1.6}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;font-size:13px}figure{margin:0}img{width:100%;border:1px solid #dce2e8}#error{color:#ad2525}small{color:#67717c}</style>
+<main><h1>HWP diff</h1><p>HTML 실행 검증용입니다. HWP·HWPX 파일을 선택해 내용 비교와 첫 쪽 미리보기를 확인합니다. 기존 앱의 전체 탐색 화면은 포함하지 않습니다.</p><small>HWP 서식·메모는 미검사입니다. 미리보기는 한컴 원본과 다를 수 있습니다.</small>
+<section><div class="files"><label>구버전<input id="old" type="file" accept=".hwp,.hwpx"></label><label>신버전<input id="new" type="file" accept=".hwp,.hwpx"></label></div><label><input type="checkbox" id="preview" checked style="display:inline"> 첫 쪽 미리보기 확인</label><br><button id="compare">비교 실행</button><button id="cancel" disabled>취소</button><p id="status" role="status">파일 두 개를 선택하세요.</p><p id="error" role="alert"></p></section>
+<section><h2>비교 결과</h2><pre id="result"></pre></section><section class="previews"><figure><figcaption>구버전 첫 쪽</figcaption><p id="before-note"></p><img id="before-image" hidden alt="구버전 첫 쪽"></figure><figure><figcaption>신버전 첫 쪽</figcaption><p id="after-note"></p><img id="after-image" hidden alt="신버전 첫 쪽"></figure></section>
+<details><summary>검증 정보</summary><pre id="diagnostics"></pre></details><!--NOTICES--></main>
+<script>
+const workerSource=/*WORKER_SOURCE*/;
+let worker,timer,workerUrl;
+const $=id=>document.getElementById(id);
+window.probe={};
+function stop(){clearTimeout(timer);worker?.terminate();worker=null;if(workerUrl){URL.revokeObjectURL(workerUrl);workerUrl=null;}$('compare').disabled=false;$('cancel').disabled=true;}
+$('cancel').onclick=()=>{stop();$('status').textContent='취소했습니다.';};
+$('compare').onclick=async()=>{
+ stop(); window.probe={protocol:location.protocol,result:null,previews:{},done:false};$('error').textContent='';$('result').textContent='';
+ for(const side of ['before','after']){$(side+'-image').hidden=true;$(side+'-note').textContent='';}
+ try{
+  const old=$('old').files[0],next=$('new').files[0];
+  if(!old||!next)throw Error('파일 두 개를 선택하세요.');
+  for(const f of [old,next])if(!/\.(hwp|hwpx)$/i.test(f.name)||!f.size||f.size>20*1024*1024)throw Error('각 파일은 20MB 이하 HWP·HWPX여야 합니다.');
+  $('compare').disabled=true;$('cancel').disabled=false;$('status').textContent='파일을 읽는 중';
+  const payload={oldFile:{name:old.name,bytes:new Uint8Array(await old.arrayBuffer())},newFile:{name:next.name,bytes:new Uint8Array(await next.arrayBuffer())},preview:$('preview').checked};
+  workerUrl=URL.createObjectURL(new Blob([workerSource],{type:'text/javascript'}));
+  worker=new Worker(workerUrl);
+  worker.onerror=e=>{const message=e.message||'Worker 초기화 실패';$('error').textContent=message;window.probe.error=message;stop();};
+  worker.onmessage=({data})=>{
+   if(data.ready){worker.postMessage(payload);return;}
+   if(data.progress)$('status').textContent=data.progress.label;
+   if(data.result){window.probe.result=data.result;$('result').textContent=JSON.stringify(data.result,null,2);$('status').textContent='비교 완료 · 미리보기 확인 중';}
+   if(data.side){window.probe.previews[data.side]=data;$(data.side+'-note').textContent=data.previewError||JSON.stringify({pages:data.preview?.totalPages,warnings:data.preview?.warnings});if(data.preview){$(data.side+'-image').src=data.preview.image;$(data.side+'-image').hidden=false;}}
+   if(data.error){window.probe.error=data.error;$('error').textContent=data.error;stop();}
+   if(data.done){window.probe.done=true;$('status').textContent='검증 완료';stop();}
+   $('diagnostics').textContent=JSON.stringify({protocol:location.protocol,done:window.probe.done,error:window.probe.error},null,2);
+  };
+  timer=setTimeout(()=>{window.probe.error='60초 처리 한도 초과';$('error').textContent=window.probe.error;stop();},60000);
+
+ }catch(e){window.probe.error=e.message;$('error').textContent=e.message;stop();}
+};
+</script></html>

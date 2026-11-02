@@ -1,0 +1,16 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+const cli=process.argv[2]??'playwright-cli';
+const casesJSON=await readFile('artifacts/browser-probe/cases.json','utf8');
+const code=(await readFile(new URL('./verify.js',import.meta.url),'utf8')).replace('/*CASES*/[]',()=> 'JSON.parse('+JSON.stringify(casesJSON)+')');
+const output=execFileSync(cli,['-s=htmlfile','run-code',code],{encoding:'utf8',maxBuffer:8*1024*1024,env:{...process.env,NPM_CONFIG_OFFLINE:'true'}});
+await writeFile('artifacts/browser-probe/browser-run.txt',output);
+const match=output.match(/### Result\n([\s\S]*?)\n### Ran Playwright/);
+assert.ok(match,'CLI did not return verification data');
+const result=JSON.parse(match[1]);
+await writeFile('artifacts/browser-probe/verification.json',JSON.stringify(result,null,2));
+assert.ok(result.url.startsWith('file:'));
+assert.equal(result.httpRequests.length,0);
+assert.ok(result.results.length===9 && result.results.every(r=>r.pass),'A browser case differs from the Node reference');
+console.log(JSON.stringify({passed:result.results.length,httpRequests:result.httpRequests.length,browser:result.browser}));
