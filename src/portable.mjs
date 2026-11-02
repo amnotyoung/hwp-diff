@@ -14,31 +14,43 @@ function defaultBrowser(url) {
 
 // The single-file launcher waits for this process. Closing its final browser tab
 // closes the SSE connection; a grace period permits reloads and tab replacement.
-export async function launchPortable({ openBrowser = defaultBrowser, closeDelay = 10_000, startupTimeout = 120_000 } = {}) {
+export async function launchPortable({ openBrowser = defaultBrowser, closeDelay = 10_000, startupTimeout = 300_000, report = () => {} } = {}) {
   const clients = new Set(); let idleTimer, startupTimer, stopped = false;
   const heartbeat = setInterval(() => { for (const res of clients) res.write(': keep-alive\n\n'); }, 20_000);
-  const stop = () => {
+  const stop = (reason = 'requested') => {
     if (stopped) return;
     stopped = true; clearTimeout(idleTimer); clearTimeout(startupTimer); clearInterval(heartbeat);
+    report('stopped', { reason });
     for (const res of clients) res.end(); clients.clear();
     server.close(); server.closeAllConnections();
   };
   const lifecycle = {
     stop,
     attach(res) {
+      report('browser-connected');
       clearTimeout(idleTimer); clearTimeout(startupTimer); clients.add(res);
       res.on('close', () => {
         clients.delete(res);
-        if (!clients.size && !stopped) idleTimer = setTimeout(stop, closeDelay);
+        if (!clients.size && !stopped) idleTimer = setTimeout(() => stop('last-tab-closed'), closeDelay);
       });
     },
   };
   const server = createServer({ lifecycle });
   try {
+    report('server-starting');
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
     const url = `http://127.0.0.1:${server.address().port}`;
-    startupTimer = setTimeout(stop, startupTimeout);
-    await openBrowser(url);
+    report('server-ready', { url });
+    startupTimer = setTimeout(() => stop('no-browser-connection'), startupTimeout);
+    report('browser-opening', { url });
+    // A shell success only means that the open request was accepted. The SSE
+    // session above confirms that the application actually loaded in a browser.
+    try {
+      await openBrowser(url);
+      report('browser-requested', { url });
+    } catch (error) {
+      report('browser-open-failed', { code: error.code ?? 'BROWSER_OPEN_FAILED', url });
+    }
     return { server, url, stop };
   } catch (error) { stop(); throw error; }
 }

@@ -30,6 +30,21 @@ test('closing the final session stops the portable app after a reload grace peri
   } finally { app.stop(); }
 });
 
-test('a browser launch failure releases the server', async () => {
-  await assert.rejects(launchPortable({ openBrowser: async () => { throw new Error('launch failed'); } }), /launch failed/);
+test('a browser launch failure keeps the URL available for manual connection', async () => {
+  const events = [];
+  const app = await launchPortable({ openBrowser: async () => { throw new Error('launch failed'); }, report: (stage, details) => events.push({ stage, ...details }) });
+  try {
+    assert.equal((await fetch(app.url + '/api/health')).status, 200);
+    assert.ok(events.some(e => e.stage === 'browser-open-failed' && e.url === app.url));
+    assert.ok(!events.some(e => e.stage === 'browser-connected' || e.stage === 'browser-requested'));
+  } finally { app.stop(); }
+});
+
+test('accepted browser request is distinct from connection and expires without a session', async () => {
+  const events = [];
+  const app = await launchPortable({ openBrowser: async () => {}, startupTimeout: 100, report: (stage, details) => events.push({ stage, ...details }) });
+  await once(app.server, 'close');
+  assert.ok(events.some(e => e.stage === 'browser-requested'));
+  assert.ok(!events.some(e => e.stage === 'browser-connected'));
+  assert.ok(events.some(e => e.stage === 'stopped' && e.reason === 'no-browser-connection'));
 });
