@@ -13,6 +13,7 @@ import { previewTargets } from '../public/report.js';
 import { formatSamples } from '../tests/helpers/format-fixture.mjs';
 import { memoFixture } from '../tests/helpers/memo-fixture.mjs';
 import { hwpFixture } from '../tests/helpers/hwp-fixture.mjs';
+import { automaticComparisonPairs } from '../tests/helpers/automatic-fixture.mjs';
 import { imageHeavyPair } from '../tests/helpers/image-heavy-fixture.mjs';
 
 // No server, browser security exceptions or downloads of browser binaries.
@@ -27,11 +28,13 @@ const plainHwp = hwp.map((file, i) => ({ ...file, bytes: hwpFixture([`사업비�
 const formats = await formatSamples(), memos = await memoFixture();
 const mixed = [hwp[0], { name: '혼합.hwpx', bytes: new Uint8Array(await markdownToHwpx('사업비는 501만원입니다.')) }];
 const pictureHeavy = await imageHeavyPair();
+const automatic=await automaticComparisonPairs();
 const cases = [
   ['hwpx-change', samples], ['hwpx-identical', [samples[0], samples[0]]],
   ['format', formats], ['memo', memos], ['hwp-compressed', hwp],
   ['hwp-uncompressed', plainHwp], ['hwp-identical', [hwp[0], hwp[0]]], ['mixed', mixed],
   ['hwpx-9MiB-pictures', pictureHeavy],
+  ['automatic-repeated',automatic.repeated], ['automatic-2101-paragraphs',automatic.large],
 ];
 const baseline = new Map();
 const withoutTime = result => { const copy = structuredClone(result); delete copy.createdAt; return copy; };
@@ -96,7 +99,8 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
       const actual = await workerJob(page, { operation: 'compare', oldFile: encodeFile(pair[0]), newFile: encodeFile(pair[1]) });
       assert.equal(actual.error, undefined, `${name}: ${actual.error}`);
       assert.deepEqual(withoutTime(actual.result), withoutTime(baseline.get(name).result), `${name}: complete JSON`);
-      assert.deepEqual(actual.stages.filter(step => step.step).map(step => step.step), [1, 2, 3, 4]);
+      assert.deepEqual([...new Set(actual.stages.filter(step => step.step).map(step => step.step))], [1, 2, 3, 4]);
+      if(name.startsWith('automatic-')) assert.ok(actual.stages.some(step=>step.checkpoint>0),'automatic work emits completed checkpoints');
       for (const [i, side] of ['old', 'new'].entries()) {
         const preview = await workerJob(page, { operation: 'preview', file: encodeFile(pair[i]), page: 1, options: { targets: previewTargets(actual.result, side) } });
         assert.equal(preview.error, undefined, `${name}: ${preview.error}`);
@@ -112,6 +116,16 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     const bomb = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const limited = await workerJob(page, { operation: 'compare', oldFile: encodeFile({ name: 'large.hwpx', bytes: bomb }), newFile: encodeFile(samples[1]) });
     assert.match(limited.error, /압축 해제/); assert.equal(limited.result, undefined);
+
+    const recovered = await workerJob(page, {operation:'compare',oldFile:encodeFile(automatic.picture[0]),newFile:encodeFile(automatic.picture[1])});
+    assert.equal(recovered.error,undefined);
+    const expectedRecovered=await compareDocuments(...automatic.picture);
+    assert.deepEqual(recovered.result.diffs,expectedRecovered.diffs);
+    assert.deepEqual(recovered.result.documents,expectedRecovered.documents);
+    assert.equal(recovered.result.warnings.filter(w=>w.code==='PICTURES_OMITTED').length,2);
+    const reducedPreview=await workerJob(page,{operation:'preview',file:encodeFile(automatic.picture[0]),page:1,options:{}});
+    assert.equal(reducedPreview.error,undefined);assert.equal(reducedPreview.result.rendering.imagesOmitted,true);
+    assert.ok(reducedPreview.result.warnings.some(w=>w.includes('그림을 제외')));
 
     // Real file-selection UI, cancellation/retry, report/JSON download and navigation.
     await upload(page, samples);
@@ -175,6 +189,9 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     await page.locator('#notice-menu > summary').click();
     assert.match(await page.locator('#critical-notices').innerText(), /HWP|서식/);
     await page.keyboard.press('Escape');
+
+    await ready(page); await upload(page,automatic.large); await page.locator('#compare').click(); await idle(page);
+    assert.deepEqual(withoutTime(await exportJson(page)),withoutTime(baseline.get('automatic-2101-paragraphs').result));
 
     // A failed read/parse leaves a retryable UI, never an unchanged result.
     await ready(page); await upload(page, [{ name: 'broken.hwp', bytes: new Uint8Array([1, 2, 3]) }, samples[1]]);

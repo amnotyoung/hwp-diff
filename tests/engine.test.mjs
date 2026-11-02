@@ -55,7 +55,7 @@ test('style and image bytes are deliberately excluded', () => {
 });
 
 test('complexity guard rejects oversized block alignments', () => {
-  assert.throws(() => compareBlocks(Array(1500).fill(paragraph('a')), Array(1500).fill(paragraph('b'))), /처리 한도/);
+  assert.throws(() => compareBlocks(Array(20001).fill(paragraph('a')), [paragraph('b')]), /문단 수/);
 });
 
 test('real HWPX sample roundtrip: paragraphs, table values, additions and deletion', async () => {

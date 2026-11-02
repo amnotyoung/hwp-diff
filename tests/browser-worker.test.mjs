@@ -35,7 +35,7 @@ test('60-second deadline terminates a busy worker and rejects instead of yieldin
   const state = environment(t), promise = runWorker('source', {});
   state.workers[0].onmessage({ data: { ready: true } });
   assert.equal(state.timers[0].delay, 60_000);
-  const rejection = assert.rejects(promise, /60초/);
+  const rejection = assert.rejects(promise, /제한 시간/);
   state.timers[0].callback(); await rejection;
   assert.equal(state.workers[0].terminated, 1);
 });
@@ -62,4 +62,19 @@ test('initialization timeout and message decode failure cannot become successful
   const second = runWorker('source', {}), rejected = assert.rejects(second, /처리 결과/);
   state.workers[1].onmessageerror(); await rejected;
   assert.ok(state.workers.every(worker => worker.terminated === 1));
+});
+
+test('automatic batches renew only completed checkpoints and retain a five-minute total deadline', async t => {
+  const state=environment(t);let now=0;t.mock.method(Date,'now',()=>now);
+  const promise=runWorker('source',{});const worker=state.workers[0];
+  worker.onmessage({data:{ready:true}});
+  now=50_000;worker.onmessage({data:{progress:{checkpoint:1,label:'batch done'}}});
+  assert.equal(state.timers.at(-1).delay,60_000);
+  const count=state.timers.length;
+  worker.onmessage({data:{progress:{checkpoint:1,label:'duplicate'}}});
+  assert.equal(state.timers.length,count);
+  now=290_000;worker.onmessage({data:{progress:{checkpoint:2}}});
+  assert.equal(state.timers.at(-1).delay,10_000);
+  const rejected=assert.rejects(promise,/제한 시간/);
+  state.timers.at(-1).callback();await rejected;assert.equal(worker.terminated,1);
 });

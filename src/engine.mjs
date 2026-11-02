@@ -1,7 +1,8 @@
 // Set before loading Kordoc, including when this module is used from tests.
 process.env.KORDOC_OFFLINE = '1';
 process.env.ORT_DISABLE_TELEMETRY = '1';
-const { parse, diffBlocks, VERSION } = await import('kordoc');
+const { parse, VERSION } = await import('kordoc');
+import { boundedDiff, assertCoverage } from './batched-alignment.mjs';
 import { compareAnnotations } from './annotations.mjs';
 import { compareFormatting } from './formatting.mjs';
 import { paragraphHeading, semanticContent, sameContent, cellDiffers } from '../public/text-diff.js';
@@ -102,18 +103,20 @@ function increasingChain(pairs) {
 // Kordoc's alignment checks every pair of blocks, which took 15 seconds for
 // two 150-page reports. Blocks identical in both versions and occurring once
 // in each are fixed first; Kordoc then aligns only the gaps between them.
-export function alignBlocks(a, b) {
+export function alignBlocks(a, b, options = {}) {
   const keyA = a.map(block => JSON.stringify(block)), keyB = b.map(block => JSON.stringify(block));
   const count = keys => keys.reduce((counts, key) => counts.set(key, (counts.get(key) ?? 0) + 1), new Map());
   const countA = count(keyA), countB = count(keyB), positionB = new Map(keyB.map((key, j) => [key, j]));
   const anchors = increasingChain(keyA.flatMap((key, i) => countA.get(key) === 1 && countB.get(key) === 1 ? [[i, positionB.get(key)]] : []));
   const diffs = [];
-  let ai = 0, bi = 0;
+  let ai = 0, bi = 0, processed = 0;
   for (const [i, j] of [...anchors, [a.length, b.length]]) {
-    if (i > ai || j > bi) diffs.push(...diffBlocks(a.slice(ai, i), b.slice(bi, j)).diffs);
+    if (i > ai || j > bi) diffs.push(...boundedDiff(a.slice(ai, i), b.slice(bi, j), options).diffs);
     if (i < a.length) diffs.push({ before: a[i], after: b[j] });
     ai = i + 1; bi = j + 1;
+    if (++processed % 100 === 0) options.onBatch?.({completed:processed,total:anchors.length+1});
   }
+  assertCoverage(diffs, a, b);
   return { diffs };
 }
 
@@ -183,10 +186,8 @@ export function relinkMoves(pairs, olds, news) {
   return result.map(({ relinked, ...p }) => ({ ...p, moved: relinked && linked.some(q => q !== p && (oldPosition.get(q.before) - oldPosition.get(p.before)) * (newPosition.get(q.after) - newPosition.get(p.after)) < 0) }));
 }
 
-export function compareBlocks(before, after, metadata = {}) {
-  if (before.length > 2000 || after.length > 2000 || before.length * after.length > 2_000_000) {
-    throw new Error('문단 수가 첫 버전의 처리 한도를 넘습니다. 문서를 나누어 비교해 주세요.');
-  }
+export function compareBlocks(before, after, metadata = {}, options = {}) {
+  if (before.length > 20_000 || after.length > 20_000) throw new Error('자동 처리 가능한 문단 수를 넘었습니다. 불완전한 비교 결과는 표시하지 않습니다.');
   // Unsupported objects must not participate in alignment or change counts.
   const originals = new Map();
   const comparable = blocks => blocks.filter(b => b.type !== 'image').map(raw => {
@@ -196,7 +197,8 @@ export function compareBlocks(before, after, metadata = {}) {
     originals.set(alignment, raw); return alignment;
   });
   const olds = comparable(before), news = comparable(after);
-  const aligned = { diffs: relinkMoves(alignBlocks(olds, news).diffs.map(d => ({ before: d.before ?? null, after: d.after ?? null })), olds, news) };
+  const aligned = { diffs: relinkMoves(alignBlocks(olds, news, options).diffs.map(d => ({ before: d.before ?? null, after: d.after ?? null })), olds, news) };
+  assertCoverage(aligned.diffs, olds, news);
   const stats = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   const oldIndexes = new Map(before.map((b, i) => [b, i + 1]));
   const newIndexes = new Map(after.map((b, i) => [b, i + 1]));
@@ -251,6 +253,7 @@ async function readDocument(bytes, name) {
   const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const result = await parse(data, { ocr: false, images: false, layoutTables: 'keep' });
   if (!result.success) throw new Error(`${name}: 문서를 읽을 수 없습니다. ${result.error}`);
+  if (result.warnings?.some(w => ['PARTIAL_PARSE', 'TRUNCATED_TABLE'].includes(w.code))) throw new Error(`${name}: 일부 본문이나 표를 완전히 읽지 못해 비교를 완료하지 않았습니다. 원문을 확인해 주세요.`);
   if (!['hwp', 'hwp3', 'hwpml', 'hwpx'].includes(result.fileType)) {
     throw new Error(`${name}: 실제 파일 형식이 HWP·HWPX가 아닙니다.`);
   }
@@ -266,10 +269,12 @@ export async function compareDocuments(oldFile, newFile, onProgress = () => {}) 
   step(0); const a = await readDocument(oldFile.bytes, oldFile.name);
   step(1); const b = await readDocument(newFile.bytes, newFile.name);
   const document = (result, file) => ({
-    name: file.name, size: file.bytes.length, format: result.fileType,
+    name: file.name, size: file.originalSize ?? file.bytes.length, format: result.fileType,
     pageMode: result.metadata?.pageMode ?? 'section', blocks: result.blocks.length,
   });
-  step(2); const compared = compareBlocks(a.blocks, b.blocks);
+  let checkpoint = 0;
+  const batch = step => () => onProgress({step,total:4,checkpoint:++checkpoint,label:`${step === 3 ? '문단·표' : '서식'} 자동 분할 비교 · ${checkpoint}구간 처리`});
+  step(2); const compared = compareBlocks(a.blocks, b.blocks, {}, {onBatch:batch(3)});
   step(3);
   return {
     ...compared,
@@ -280,7 +285,7 @@ export async function compareDocuments(oldFile, newFile, onProgress = () => {}) 
       ...(b.warnings ?? []).map(w => ({ ...w, document: '신버전' })),
     ],
     annotations: await compareAnnotations(oldFile, newFile, [a.fileType, b.fileType]),
-    formatting: await compareFormatting(oldFile, newFile, [a.fileType, b.fileType]),
+    formatting: await compareFormatting(oldFile, newFile, [a.fileType, b.fileType], {onBatch:batch(4)}),
     limitations: LIMITATIONS,
   };
 }

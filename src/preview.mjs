@@ -22,7 +22,7 @@ export async function previewDocument(file, page = 1, options = {}, render = ren
     // picture data. Rendering all pages without pictures keeps picture-heavy
     // documents (for example uncompressed BMP photos) within the limits.
     const text = await render(file.bytes, { reflow: true, maxImageBytes: WITHOUT_IMAGES });
-    if (svgBytes(text.pageSvgs) > TEXT_LIMIT) throw new Error('문서의 글과 표가 많아 변경 위치를 찾을 수 없습니다. 문서를 나누어 확인해 주세요.');
+    if (svgBytes(text.pageSvgs) > TEXT_LIMIT) throw new Error('문서의 글과 표가 원본 위치 탐색 한도를 넘었습니다. 내용 비교 결과에서 확인해 주세요.');
     const located = locateChanges(text.scene, text.pageSvgs, options.targets ?? [], options.search);
     locations = Array.isArray(located) ? located : located.locations;
     searchMatches = Array.isArray(located) ? [] : located.searchMatches;

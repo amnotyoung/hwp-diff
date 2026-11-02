@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { DOMParser } from '@xmldom/xmldom';
-import { diffBlocks } from 'kordoc';
+import { boundedDiff } from './batched-alignment.mjs';
 import { textParts, textChanges } from '../public/text-diff.js';
 
 export const FORMAT_LABELS = { color: '글자색', font: '글꼴', spacing: '자간', ratio: '장평' };
@@ -152,9 +152,8 @@ function safeEqualParts(part, blocked) {
   append(part.text.length); return parts;
 }
 
-export function compareFormattingParagraphs(before, after) {
-  if (before.length * after.length > 2_000_000) throw new Error('서식 비교 문단 한도를 넘었습니다.');
-  const aligned = diffBlocks(before, after), diffs = [], uncertainMappings = [];
+export function compareFormattingParagraphs(before, after, options = {}) {
+  const aligned = boundedDiff(before, after, options), diffs = [], uncertainMappings = [];
   let comparedCharacters = 0, unmatchedParagraphs = 0, incompleteRanges = 0;
   for (const pair of aligned.diffs) {
     const a = pair.before, b = pair.after;
@@ -232,8 +231,8 @@ export function compareFormattingParagraphs(before, after) {
   return { available: true, diffs, stats: { changedRanges: diffs.length, properties }, comparedCharacters, unmatchedParagraphs, incompleteRanges, uncertainMappings };
 }
 
-export async function compareFormatting(oldFile, newFile, formats) {
+export async function compareFormatting(oldFile, newFile, formats, options = {}) {
   if (formats.some(f => f !== 'hwpx')) return { available: false, reason: 'unsupported-format', message: 'HWP가 포함되어 글자색·글꼴·자간·장평 변경은 검사하지 않았습니다. 서식 비교가 필요하면 두 파일을 HWPX로 저장해 다시 비교하세요.' };
-  try { return compareFormattingParagraphs(await readHwpxFormatting(oldFile.bytes), await readHwpxFormatting(newFile.bytes)); }
+  try { return compareFormattingParagraphs(await readHwpxFormatting(oldFile.bytes), await readHwpxFormatting(newFile.bytes), options); }
   catch { return { available: false, message: '글자 서식을 완전히 읽거나 대응시키지 못했습니다. 서식 변경 없음으로 판정할 수 없습니다.' }; }
 }

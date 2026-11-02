@@ -10,7 +10,7 @@ export function boundedInflate(bytes, options = {}, raw = false) {
   let size = 0;
   inflater.onData = chunk => {
     size += chunk.length;
-    if (size > limit) throw new Error('압축 해제 크기가 처리 한도를 넘습니다. 문서를 나누어 확인해 주세요.');
+    if (size > limit) throw new Error('압축 해제 크기가 처리 한도를 넘습니다. 자동 처리 한도를 넘어 작업을 완료하지 않았습니다.');
     chunks.push(chunk);
   };
   inflater.push(bytes, true);
