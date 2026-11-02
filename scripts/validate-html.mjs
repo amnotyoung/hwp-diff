@@ -94,6 +94,9 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
     await ready(page);
+    const openingUrl=page.url();
+    await page.locator('.topbar .brand').click();
+    assert.equal(page.url(),openingUrl,'app name must not navigate to file root');
     const buildInfo=await page.locator('#app-build-info').evaluate(el=>JSON.parse(el.textContent));
     assert.equal(buildInfo.version,'0.2.0');assert.equal(buildInfo.target,'standalone-html');
     assert.ok(buildInfo.buildId.includes(buildInfo.revision.slice(0,8)));
@@ -181,6 +184,15 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
       assert.ok(geometry.scroll <= geometry.width + 1, 'no horizontal page overflow');
       assert.ok(geometry.images.every(img => img.valid && img.width > 100 && img.height > 100));
     }
+    const beforeBrand=await page.locator('#result-title').textContent();
+    const beforeSelection=await page.locator('#change-list').inputValue();
+    const beforeBrandUrl=page.url();
+    await page.locator('.workbench-header .workbench-brand').click();
+    assert.equal(page.url(),beforeBrandUrl,'result app name must not navigate to file root');
+    assert.equal(await page.locator('#results').isVisible(),true);
+    assert.equal(await page.locator('#result-title').textContent(),beforeBrand);
+    assert.equal(await page.locator('#change-list').inputValue(),beforeSelection);
+    assert.equal(await page.locator('#old-file').evaluate(el=>el.files.length),1);
     await page.locator('.workbench-header [data-app-version]').click();
     assert.ok((await page.locator('#app-version-text').inputValue()).includes(buildInfo.buildId));
     assert.ok(!(await page.locator('#app-version-text').inputValue()).includes(samples[0].name));

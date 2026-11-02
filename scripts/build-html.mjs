@@ -35,10 +35,11 @@ const inline = text => text.replace(/<\/script/gi, '<\\/script');
 const workerSource = `(async()=>{${worker.outputFiles[0].text}\n})().catch(error=>self.postMessage({error:'문서 처리 기능 초기화 실패: '+error.message}));`;
 const notices = await htmlNotices(root, [worker, app]);
 const css = await readFile(resolve(root, 'public/style.css'), 'utf8');
-const payloadHash = createHash('sha256').update(workerSource).update(app.outputFiles[0].text).update(css).digest('hex');
+const template = await readFile(resolve(root, 'public/index.html'), 'utf8');
+const payloadHash = createHash('sha256').update(workerSource).update(app.outputFiles[0].text).update(css).update(template).update(notices).digest('hex');
 const appBuild = await createBuildInfo(root, {target:'standalone-html',builtAt:new Date().toISOString(),payloadHash});
 const buildJson = JSON.stringify(appBuild).replaceAll('<', '\\u003c');
-let html = await readFile(resolve(root, 'public/index.html'), 'utf8');
+let html = template;
 html = html.replace('<link rel="stylesheet" href="./style.css">', () => `<style>${css}</style>`)
   .replace('  <script src="./launch-guard.js" defer></script>', '')
   .replace('<meta charset="utf-8">', `<meta charset="utf-8">\n  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">`)
@@ -47,7 +48,6 @@ html = html.replace('<link rel="stylesheet" href="./style.css">', () => `<style>
     <button type="button" class="app-version-button" data-app-version aria-label="앱 버전 정보" aria-haspopup="dialog" aria-expanded="false">버전 정보</button>
     <button id="launch-retry" class="button primary" hidden>다시 시도</button>
     <p>브라우저 보안 해제나 관리자 권한은 필요하지 않습니다.</p></main>`)
-  .replace('class="brand" href="/"', 'class="brand" href="#"')
   .replace('HWP · HWPX / 파일당 최대 20MB', 'HWP 5.x · HWPX / 파일당 최대 20MB')
   .replace('문서는 메모리에서 처리하며 원본 파일은 수정하지 않습니다.', '문서는 메모리에서 처리하며 외부 전송·자동 저장하지 않습니다.')
   .replace('<div id="empty-state"></div>', `<div id="empty-state"><details class="launch-note"><summary>지원 범위와 처리 한도</summary><p>HWP 5.x·HWPX 내용과 HWPX 글자 서식·메모를 비교합니다. HWP 서식·메모, HWP 3.x·암호·DRM·배포용 문서는 지원하지 않습니다. 미리보기는 한컴 화면과 다를 수 있습니다.</p><p>파일당 20MB로 제한합니다. 문단·표는 자동으로 나눠 비교하며 완료한 구간마다 진행 상황을 표시합니다. 응답 없는 처리는 60초, 자동 분할 작업 전체는 최대 5분으로 제한합니다. HWPX는 압축 해제 후 본문·서식 한 개 32MiB·합계 64MiB, 그림 한 개 64MiB·합계 192MiB까지 처리합니다. 그림이 처리 한도를 넘으면 그림의 참조와 자리는 유지한 내부 처리본으로 본문 비교를 계속합니다. 이 경우 미리보기에서 그림이 생략됐음을 안내합니다. 문서 복잡도와 브라우저 메모리에 따라 더 작은 파일도 중단될 수 있습니다.</p></details></div>`)

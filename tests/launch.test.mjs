@@ -33,3 +33,11 @@ test('entry HTML loads local styling and guard with relative paths', async () =>
   assert.match(html, /href="\.\/style.css"/); assert.match(html, /src="\.\/launch-guard.js"/);
   assert.match(html, /id="app-shell" hidden/); assert.ok(!html.includes('type="module"'));
 });
+
+
+test('app names are non-navigating labels in both headers', async () => {
+  const html=await readFile(new URL('../public/index.html',import.meta.url),'utf8');
+  assert.match(html,/<span class="brand">HWP diff<\/span>/);
+  assert.match(html,/<span class="workbench-brand">HWP diff<\/span>/);
+  assert.ok(!/<a[^>]*class="(?:brand|workbench-brand)"/.test(html));
+});
