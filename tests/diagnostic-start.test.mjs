@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStartupReporter, startDiagnostic } from '../src/diagnostic-start.mjs';
+import { createStartupReporter, formatStartupStatus, startDiagnostic } from '../src/diagnostic-start.mjs';
 
 test('startup log survives shutdown and distinguishes a real browser connection', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hwp-diff-diagnostic-'));
@@ -12,7 +12,7 @@ test('startup log survives shutdown and distinguishes a real browser connection'
   let app;
   try {
     app = await startDiagnostic({ logPath, openBrowser: async () => {}, output: line => lines.push(line) });
-    assert.ok(lines.some(line => line.includes('server-ready') && line.includes(app.url)));
+    assert.equal(lines[lines.indexOf('server-ready') + 1], app.url);
     assert.ok(!lines.some(line => line.includes('browser-connected')));
     const controller = new AbortController();
     const response = await fetch(app.url + '/api/session', { signal: controller.signal });
@@ -23,8 +23,22 @@ test('startup log survives shutdown and distinguishes a real browser connection'
     for (const stage of ['runtime-started', 'modules-loaded', 'server-starting', 'server-ready', 'browser-requested', 'browser-connected', 'stopped']) {
       assert.ok(log.includes(stage), stage);
     }
-    assert.equal(log.trim().split('\n').length, lines.length);
+    assert.match(log, /\d{4}-\d{2}-\d{2}T.*runtime-started.*"os":/);
+    assert.ok(lines.every(line => line.length <= 48));
   } finally { app?.stop(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('long diagnostic values wrap on screen without truncating the saved event', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hwp-diff-diagnostic-'));
+  try {
+    const logPath = join(dir, 'startup.log'), lines = [];
+    const code = 'LONG_ERROR_'.repeat(20);
+    createStartupReporter(logPath, line => lines.push(line))('startup-failed', { code });
+    assert.ok(lines.every(line => line.length <= 48));
+    assert.equal(lines.slice(1).join(''), `code: ${code}`);
+    assert.ok((await readFile(logPath, 'utf8')).includes(JSON.stringify({ code })));
+    assert.deepEqual(formatStartupStatus('server-ready', { url: 'http://127.0.0.1:65535' }), ['server-ready', 'http://127.0.0.1:65535']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test('an unwritable log does not prevent startup diagnostics on screen', () => {
