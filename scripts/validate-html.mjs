@@ -94,6 +94,25 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
     await ready(page);
+    const buildInfo=await page.locator('#app-build-info').evaluate(el=>JSON.parse(el.textContent));
+    assert.equal(buildInfo.version,'0.2.0');assert.equal(buildInfo.target,'standalone-html');
+    assert.ok(buildInfo.buildId.includes(buildInfo.revision.slice(0,8)));
+    assert.match(await page.locator('.topbar [data-app-version]').textContent(), /v0\.2\.0/);
+    await page.locator('.topbar [data-app-version]').click();
+    assert.equal(await page.locator('#app-version-dialog').isVisible(),true);
+    assert.ok((await page.locator('#app-version-text').inputValue()).includes(buildInfo.buildId));
+    await page.evaluate(()=>{window.__versionCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__versionCopied=text;}}});});
+    await page.locator('#app-version-copy').click();
+    assert.ok((await page.evaluate(()=>window.__versionCopied)).includes(buildInfo.buildId));
+    await page.keyboard.press('Escape');assert.equal(await page.locator('#app-version-dialog').isVisible(),false);
+    await page.locator('.topbar [data-app-version]').click();await page.mouse.click(1,1);
+    assert.equal(await page.locator('#app-version-dialog').isVisible(),false);
+    await page.locator('.topbar [data-app-version]').click();
+    await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('blocked');}}}));
+    await page.locator('#app-version-copy').click();
+    assert.match(await page.locator('#app-version-status').textContent(),/Ctrl\+C/);
+    assert.equal(await page.locator('#app-version-text').evaluate(el=>el.selectionEnd-el.selectionStart), (await page.locator('#app-version-text').inputValue()).length);
+    await page.locator('#app-version-close').click();
     const results = [];
     for (const [name, pair] of cases) {
       const actual = await workerJob(page, { operation: 'compare', oldFile: encodeFile(pair[0]), newFile: encodeFile(pair[1]) });
@@ -156,11 +175,17 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     for (const width of [1440, 960]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.screenshot({ path: join(artifacts, `${channel}-${width}.png`) });
+      assert.equal(await page.locator('.workbench-header [data-app-version]').isVisible(),true);
       const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
         images: ['old', 'new'].map(side => { const img = document.getElementById(`${side}-preview`), box = img.getBoundingClientRect(); return { valid: img.naturalWidth > 0, width: box.width, height: box.height }; }) }));
       assert.ok(geometry.scroll <= geometry.width + 1, 'no horizontal page overflow');
       assert.ok(geometry.images.every(img => img.valid && img.width > 100 && img.height > 100));
     }
+    await page.locator('.workbench-header [data-app-version]').click();
+    assert.ok((await page.locator('#app-version-text').inputValue()).includes(buildInfo.buildId));
+    assert.ok(!(await page.locator('#app-version-text').inputValue()).includes(samples[0].name));
+    await page.screenshot({path:join(artifacts,`${channel}-version.png`)});
+    await page.locator('#app-version-close').click();
     // Mode switches must not move the document or auto-select an item.
     await page.locator('#next-change').click(); await idle(page);
     const selectedContent = await page.locator('#change-list').inputValue();
@@ -207,6 +232,7 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     await blocked.goto(url); await blocked.locator('#launch-retry').waitFor({ state: 'visible' });
     assert.match(await blocked.locator('#launch-status').textContent(), /정책/);
     assert.equal(await blocked.locator('#app-shell').isVisible(), false);
+    assert.match(await blocked.locator('#launch-help [data-app-version]').textContent(), /v0\.2\.0/);
     await blocked.close();
     const noJsContext = await browser.newContext({ javaScriptEnabled: false, offline: true });
     const noJs = await noJsContext.newPage(); await noJs.goto(url);
@@ -214,7 +240,7 @@ for (const channel of process.argv.slice(2).length ? process.argv.slice(2) : ['m
     await noJsContext.close();
     assert.deepEqual(requests, [], 'zero HTTP/HTTPS requests including localhost');
     assert.deepEqual(errors, [], 'no uncaught page exceptions');
-    const item = { channel, version: browser.version(), cases: results, previews: results.length * 2, requests: requests.length, ui: 'cancel/retry, exports, mode state, 1440/960, policy/JavaScript fallback passed' };
+    const item = { appBuild:buildInfo, versionUi:'visible, popup, copy, denied-clipboard fallback, close/Escape/outside passed', channel, version: browser.version(), cases: results, previews: results.length * 2, requests: requests.length, ui: 'cancel/retry, exports, mode state, 1440/960, policy/JavaScript fallback passed' };
     report.channels.push(item); console.log(JSON.stringify(item));
     await context.close();
   } finally { await browser.close(); }

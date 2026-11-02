@@ -668,3 +668,15 @@ html { scrollbar-gutter:stable; }
 
 /* Packaged app only: lets the user stop the local program. */
 .topbar .exit-app { margin-left:auto; }
+
+/* Fixed-height version access in both the start and results headers. */
+.app-version-button { flex-shrink:0; min-height:32px; padding:5px 8px; border:1px solid var(--line); border-radius:4px; background:var(--white); color:var(--muted); font:inherit; font-size:12px; white-space:nowrap; cursor:pointer; }
+.app-version-button:hover { color:var(--blue); background:var(--blue-tint); }
+.app-version-button:focus-visible { outline:2px solid var(--sky); outline-offset:2px; }
+#app-version-dialog { width:min(620px, calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; padding:24px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:var(--white); }
+#app-version-dialog::backdrop { background:rgba(25,32,44,.35); }
+#app-version-dialog header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+#app-version-dialog h2 { margin:0; font-size:18px; }
+#app-version-dialog p { font-size:14px; line-height:1.6; }
+#app-version-text { display:block; box-sizing:border-box; width:100%; height:260px; resize:vertical; margin:16px 0; padding:12px; border:1px solid var(--line); border-radius:4px; background:var(--surface); color:inherit; font:13px/1.65 'Noto Sans KR','맑은 고딕',sans-serif; overflow-wrap:anywhere; }
+#app-version-status { min-height:1.6em; margin-bottom:0; color:var(--muted); }

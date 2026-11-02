@@ -1,3 +1,4 @@
+import { runtimeBuildInfo } from './app-info.mjs';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -5,10 +6,12 @@ import { resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { spawn } from 'node:child_process';
 
+const appBuild = await runtimeBuildInfo(fileURLToPath(new URL('../', import.meta.url)));
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_BODY = 2 * MAX_FILE + 1024 * 1024;
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/app-version.js', ['app-version.js', 'text/javascript; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/transport.js', ['transport.js', 'text/javascript; charset=utf-8']],
   ['/launch-guard.js', ['launch-guard.js', 'text/javascript; charset=utf-8']],
@@ -136,7 +139,9 @@ export function createServer({ lifecycle } = {}) {
       if (!hosts.includes(req.headers.host)) throw new HttpError(403, '이 PC의 로컬 주소로 접속해 주세요.');
       const path = new URL(req.url, 'http://localhost').pathname;
       const sameOrigin = !(req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) && req.headers['sec-fetch-site'] !== 'cross-site';
-      if (req.method === 'GET' && path === '/api/app') {
+      if (req.method === 'GET' && path === '/api/version') {
+        send(200, appBuild);
+      } else if (req.method === 'GET' && path === '/api/app') {
         send(200, { portable: !!lifecycle });
       } else if (req.method === 'GET' && path === '/api/session' && lifecycle) {
         // An open app tab keeps this stream; the packaged app exits once none remain.

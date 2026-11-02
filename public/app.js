@@ -1,3 +1,4 @@
+import { initializeVersionInfo } from './app-version.js';
 import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fileLabel, previewTargets, annotationsHtml, memoCardHtml, textSummary, formattingHtml, formatCardHtml, previewExplanation, comparisonSegments } from './report.js';
 import { markSearch, buildSearchIndex } from './search.js';
 import { fittedCanvasWidths, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
@@ -5,6 +6,7 @@ import { createReviewState, REVIEW_LABELS, allReviewItems, reviewItems, reviewFi
 import { standalone, requestCompare, requestPreview } from './transport.js';
 
 const $ = selector => document.querySelector(selector);
+initializeVersionInfo();
 $('#preview-actions').insertAdjacentHTML('beforeend', '<button id="cancel-preview" class="button secondary" hidden>취소</button>');
 for (const side of ['old', 'new']) $(`#${side}-preview-message`).insertAdjacentHTML('afterend', `<button id="${side}-preview-retry" class="button secondary" hidden>미리보기 다시 시도</button>`);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;

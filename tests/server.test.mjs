@@ -137,3 +137,11 @@ test('comparison progress streams real stages before the result, and errors in-b
   assert.match(plain.headers.get('content-type'), /application\/json/, 'requests without the header keep plain JSON');
   await plain.json();
 });
+
+
+test('app version endpoint identifies the running source without document or machine paths', async () => {
+  const response=await fetch(base+'/api/version');assert.equal(response.status,200);
+  const info=await response.json();
+  assert.equal(info.app,'HWP diff');assert.equal(info.version,'0.2.0');assert.equal(info.target,'node-source');
+  assert.ok(info.buildId.startsWith('0.2.0+'));assert.ok(!JSON.stringify(info).includes(process.cwd()));
+});
