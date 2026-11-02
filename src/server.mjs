@@ -10,6 +10,7 @@ const MAX_BODY = 2 * MAX_FILE + 1024 * 1024;
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/transport.js', ['transport.js', 'text/javascript; charset=utf-8']],
   ['/launch-guard.js', ['launch-guard.js', 'text/javascript; charset=utf-8']],
   ['/report.js', ['report.js', 'text/javascript; charset=utf-8']],
   ['/text-diff.js', ['text-diff.js', 'text/javascript; charset=utf-8']],

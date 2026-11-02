@@ -7,7 +7,8 @@ const MB = 1024 * 1024;
 // Kordoc skips every image above maxImageBytes, so 1 byte draws text, tables and layout only.
 const WITHOUT_IMAGES = 1;
 const IMAGE_LIMIT = 5 * MB;
-// Limits protect the worker (512MB heap, 60s) and the browser, which keeps up to 8 pages as base64.
+// Payload limits also apply in browsers. Only the Node worker has a 512MB heap
+// limit; browsers have a deadline, bounded payloads and a bounded preview cache.
 const TEXT_LIMIT = 64 * MB;
 const PAGE_LIMIT = 16 * MB;
 const svgBytes = svgs => [...svgs.values()].reduce((n, svg) => n + Buffer.byteLength(svg), 0);

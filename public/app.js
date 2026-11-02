@@ -2,8 +2,11 @@ import { labels, escapeHtml, blockText, renderDiff, warningsHtml, exportHtml, fi
 import { markSearch, buildSearchIndex } from './search.js';
 import { fittedCanvasWidths, clipPageBoxes, previewNotice, validatePageInput } from './view-layout.js';
 import { createReviewState, REVIEW_LABELS, allReviewItems, reviewItems, reviewFilters, reviewItemText, reviewPresence } from './review-state.js';
+import { standalone, requestCompare, requestPreview } from './transport.js';
 
 const $ = selector => document.querySelector(selector);
+$('#preview-actions').insertAdjacentHTML('beforeend', '<button id="cancel-preview" class="button secondary" hidden>취소</button>');
+for (const side of ['old', 'new']) $(`#${side}-preview-message`).insertAdjacentHTML('afterend', `<button id="${side}-preview-retry" class="button secondary" hidden>미리보기 다시 시도</button>`);
 let files = { old: null, new: null }, result = null, filter = 'changes', shown = 50, controller = null;
 let isDemo = false, previewPages = { old: 1, new: 1 }, previewCache = new Map();
 let review = createReviewState();
@@ -106,6 +109,8 @@ function setBusy(busy, preview = false) {
   document.querySelectorAll('[data-filter]').forEach(b => { b.disabled = busy; });
   document.querySelectorAll('[data-segment-step], #previous-segment, #next-segment').forEach(b => { b.disabled = busy; });
   $('#cancel').hidden = !busy;
+  $('#cancel-preview').hidden = !busy || !preview;
+  for (const side of ['old', 'new']) $(`#${side}-preview-retry`).disabled = busy;
   $('#compare').innerHTML = busy ? `<span class="spinner"></span> ${preview ? '미리보기 준비 중' : '비교 중'}` : '변경 사항 비교 <span>→</span>';
   $('.upload-panel').setAttribute('aria-busy', String(busy));
   updateFiles();
@@ -113,27 +118,6 @@ function setBusy(busy, preview = false) {
   updateSearchControls();
   updateToolbar();
   if (!busy) { restoreSegments($('#diff-list')); restoreSegments($('#selected-change-detail')); updateSegmentControls(); }
-}
-// The server streams one JSON object per line: stage updates, then the result.
-async function readProgressStream(response, onProgress) {
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = '', scanned = 0, outcome = null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buffer += value;
-    // Only scan new text for line ends; a large result arrives in many chunks.
-    for (let at = buffer.indexOf('\n', scanned); at >= 0; at = buffer.indexOf('\n', 0)) {
-      const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);
-      if (!line) continue;
-      const message = JSON.parse(line);
-      if (message.progress) onProgress(message.progress); else outcome = message;
-    }
-    scanned = buffer.length;
-    if (done) break;
-  }
-  if (outcome?.error) throw new Error(outcome.error);
-  if (!outcome?.result) throw new Error('비교 결과를 받지 못했습니다. 다시 비교해 주세요.');
-  return outcome.result;
 }
 let progressTimer = null, progressStarted = 0;
 function showProgress({ step = 0, total = 4, label = '비교를 준비하는 중' } = {}) {
@@ -163,10 +147,7 @@ async function compare(demo = false, reverse = false) {
   try {
     const form = new FormData();
     if (!demo) { form.append('oldFile', files.old); form.append('newFile', files.new); }
-    const response = await fetch(demo ? '/api/demo' : '/api/compare', { method: 'POST', headers: { 'X-Hwp-Diff': '1', 'X-Hwp-Progress': '1' }, body: demo ? JSON.stringify({ reverse }) : form, signal: controller.signal });
-    let data;
-    if (response.ok && response.headers.get('Content-Type')?.startsWith('application/x-ndjson')) data = await readProgressStream(response, showProgress);
-    else { data = await response.json(); if (!response.ok) throw new Error(data.error || '비교하지 못했습니다.'); }
+    const data = await requestCompare(form, demo, reverse, controller.signal, showProgress);
     result = data; isDemo = demo; demoReversed = reverse; filter = 'changes'; shown = 50; $('#search').value = '';
     stopProgress();
     showResults();
@@ -178,6 +159,8 @@ async function compare(demo = false, reverse = false) {
 $('#compare').addEventListener('click', () => compare());
 $('#demo').addEventListener('click', () => compare(true));
 $('#cancel').addEventListener('click', () => controller?.abort());
+$('#cancel-preview').addEventListener('click', () => controller?.abort());
+for (const side of ['old', 'new']) $(`#${side}-preview-retry`).addEventListener('click', () => showPreview({ [side]: Number($(`#${side}-preview-retry`).dataset.page) }));
 
 function showResults() {
   document.body.classList.add('has-results'); document.body.classList.remove('edit-files');
@@ -492,6 +475,7 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
   if (jump && location?.boxes.length) page = location.boxes[0].page;
   const key = previewKey(side, page, searchQuery);
   const img = $(`#${side}-preview`), message = $(`#${side}-preview-message`);
+  $(`#${side}-preview-retry`).hidden = true;
   $(`#${side}-canvas`).hidden = true; message.hidden = false; message.textContent = '미리보기를 준비하고 있습니다…';
   const started = Date.now(), elapsed = setInterval(() => { if (!message.hidden) message.textContent = `미리보기를 준비하고 있습니다… ${Math.floor((Date.now() - started) / 1000)}초 경과`; }, 1000);
   $(`#${side}-preview-warnings`).textContent = '';
@@ -510,11 +494,17 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
       if (jump) form.append('jump', '1');
       if (isDemo) { form.append('demo', '1'); form.append('side', side); if (demoReversed) form.append('reverse', '1'); }
       else form.append('file', files[side]);
-      const response = await fetch('/api/preview', { method: 'POST', headers: { 'X-Hwp-Diff': '1' }, body: form, signal: controller.signal });
-      data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? '미리보기를 만들 수 없습니다.');
+      data = await requestPreview(form, controller.signal);
       if (previewCache.size >= 8) previewCache.delete(previewCache.keys().next().value);
-      previewCache.set(previewKey(side, data.page, searchQuery), data);
+      // Bound retained preview payloads as well as the page count. This is an
+      // estimate of UTF-16 strings, not a browser heap guarantee.
+      const cost = value => JSON.stringify(value).length * 2, budget = 48 * 1024 * 1024, incoming = cost(data);
+      let retained = [...previewCache.values()].reduce((sum, value) => sum + cost(value), 0);
+      while (previewCache.size && retained + incoming > budget) {
+        const oldest = previewCache.keys().next().value;
+        retained -= cost(previewCache.get(oldest)); previewCache.delete(oldest);
+      }
+      if (incoming <= budget) previewCache.set(previewKey(side, data.page, searchQuery), data);
     }
     if (searchQuery !== queryText()) return;
     previewLocations[side] = data.locations ?? []; previewData[side] = data;
@@ -534,6 +524,8 @@ async function loadPreview(side, page, jump = false, searchQuery = queryText(), 
   } catch (error) {
     message.textContent = error.name === 'AbortError' ? '미리보기를 취소했습니다.' : `미리보기 불가: ${error.message} 내용 비교 결과는 계속 확인할 수 있습니다.`;
     previewData[side] = null;
+    $(`#${side}-preview-retry`).dataset.page = String(page);
+    $(`#${side}-preview-retry`).hidden = false;
     $(`#${side}-page`).value = String(previewPages[side]);
   } finally { clearInterval(elapsed); }
 }
@@ -551,6 +543,12 @@ async function showPreview(pages = { ...previewPages }, note = '', jump = false)
     for (const [side, page] of Object.entries(pages)) {
       if (controller.signal.aborted || requestedQuery !== queryText()) break;
       await loadPreview(side, page, jump, requestedQuery, requestedFocus);
+    }
+    if (controller.signal.aborted) for (const [side, page] of Object.entries(pages)) {
+      if (previewData[side]) continue;
+      $(`#${side}-preview-message`).textContent = '미리보기를 취소했습니다.';
+      $(`#${side}-preview-retry`).dataset.page = String(page);
+      $(`#${side}-preview-retry`).hidden = false;
     }
   } finally { controller = null; setBusy(false); }
   if (requestedQuery !== queryText()) return;
@@ -1069,6 +1067,7 @@ window.addEventListener('keydown', event => {
 // Only the packaged app (DMG/EXE) answers portable: true. It stops when the
 // user presses 프로그램 종료 or about 10 seconds after the last app tab closes.
 (async function connectPortableRuntime() {
+  if (standalone) return;
   try {
     const response = await fetch('/api/app');
     if (!response.ok || !(await response.json()).portable) return;
