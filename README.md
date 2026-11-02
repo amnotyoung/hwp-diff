@@ -6,23 +6,23 @@
 
 ## 권장 실행: 단일 HTML
 
-**Windows 업무 PC에서는 `HWP-diff.html` 한 파일을 Edge 또는 Chrome으로 열어 사용합니다.** 설치·EXE·Node.js·로컬 서버·인터넷 연결이 필요하지 않습니다. 문서 처리는 브라우저 안에서 이루어집니다.
+**Windows 업무 PC에서는 [HWP-diff-v0.2.0.html](https://github.com/amnotyoung/hwp-diff/releases/download/v0.2.0/HWP-diff-v0.2.0.html) 한 파일을 내려받아 Edge 또는 Chrome으로 열어 사용합니다.** 설치·EXE·Node.js·로컬 서버·인터넷 연결이 필요하지 않습니다. 문서 처리는 브라우저 안에서 이루어집니다.
 
 1. 빌드된 `HWP-diff.html`을 업무 PC에 복사합니다.
 2. Edge 또는 Chrome으로 파일 자체를 엽니다. 메일·문서 관리 시스템의 미리보기 화면이 아닌 브라우저에서 직접 여세요.
 3. 구버전·신버전 HWP 5.x 또는 HWPX를 선택하고 **변경 사항 비교**를 누릅니다.
 4. 내용·서식·메모, 목록·원본 보기를 사용하고 필요한 결과만 HTML 또는 JSON으로 저장합니다.
 
-**2026-11-02, 사용자가 Windows 업무 PC에서 HTML 버전이 정상 실행됨을 확인했습니다.** HWP 서식·메모 미검사와 복잡한 문서의 파싱·미리보기 제한은 그대로 적용됩니다. 자세한 범위·처리 한도·검증 기록은 [단일 HTML 안내](https://github.com/amnotyoung/hwp-diff/blob/feat/standalone-html/docs/browser-html.md)를 참고하세요.
+**2026-11-02, 사용자가 Windows 업무 PC에서 HTML 버전이 정상 실행됨을 확인했습니다.** HWP 서식·메모 미검사와 복잡한 문서의 파싱·미리보기 제한은 그대로 적용됩니다. 자세한 범위·처리 한도·검증 기록은 [단일 HTML 안내](docs/browser-html.md)를 참고하세요.
 
 ### 현재 배포 상태와 HTML 빌드
 
-HTML 구현은 현재 [feat/standalone-html 브랜치](https://github.com/amnotyoung/hwp-diff/tree/feat/standalone-html)에 있으며, 원격 `main`에는 아직 병합되지 않았습니다. **HTML 파일은 Releases에 아직 게시하지 않았습니다.** 아래 명령은 인터넷이 되는 개발 PC에서 실행하며, 업무 PC에는 완성된 HTML 파일만 가져갑니다.
+[v0.2.0 사전 배포판](https://github.com/amnotyoung/hwp-diff/releases/tag/v0.2.0)에서 단일 HTML, 빌드 정보와 SHA-256 체크섬을 제공합니다. 사용자는 HTML 파일만 받으면 됩니다. 소스는 `main`과 `v0.2.0` 태그에서 확인할 수 있습니다. 직접 빌드하려면 인터넷이 되는 개발 PC에서 아래 명령을 실행하고, 업무 PC에는 완성된 HTML 파일만 가져갑니다.
 
 ```sh
 git clone https://github.com/amnotyoung/hwp-diff.git
 cd hwp-diff
-git switch feat/standalone-html
+git switch --detach v0.2.0
 npm ci --ignore-scripts
 npm run build:html
 ```

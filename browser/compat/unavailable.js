@@ -1,4 +1,4 @@
-const unavailable = () => { throw new Error('이 문서의 기능은 HTML 버전에서 지원하지 않습니다. 암호·DRM·배포용 문서는 지원하지 않습니다.'); };
+const unavailable = () => { throw new Error('이 문서의 기능은 HTML 버전에서 지원하지 않습니다. 열기 암호·DRM 또는 외부 프로그램 호출이 필요한 문서인지 확인해 주세요.'); };
 export const readFile = unavailable, readFileSync = unavailable, execFileSync = unavailable;
 export const createHash = unavailable, createCipheriv = unavailable, createDecipheriv = unavailable;
 export const pbkdf2Sync = unavailable, timingSafeEqual = unavailable;
