@@ -44,7 +44,7 @@ html = html.replace('<link rel="stylesheet" href="./style.css">', () => `<style>
   .replace('class="brand" href="/"', 'class="brand" href="#"')
   .replace('HWP · HWPX / 파일당 최대 20MB', 'HWP 5.x · HWPX / 파일당 최대 20MB')
   .replace('문서는 메모리에서 처리하며 원본 파일은 수정하지 않습니다.', '문서는 메모리에서 처리하며 외부 전송·자동 저장하지 않습니다.')
-  .replace('<div id="empty-state"></div>', `<div id="empty-state"><details class="launch-note"><summary>지원 범위와 처리 한도</summary><p>HWP 5.x·HWPX 내용과 HWPX 글자 서식·메모를 비교합니다. HWP 서식·메모, HWP 3.x·암호·DRM·배포용 문서는 지원하지 않습니다. 미리보기는 한컴 화면과 다를 수 있습니다.</p><p>파일당 20MB, 작업당 60초로 제한합니다. HWPX 압축 해제는 내부 파일당 32MB·문서당 64MB까지 처리하며, 문서 복잡도와 브라우저 메모리에 따라 더 작은 파일도 중단될 수 있습니다.</p></details></div>`)
+  .replace('<div id="empty-state"></div>', `<div id="empty-state"><details class="launch-note"><summary>지원 범위와 처리 한도</summary><p>HWP 5.x·HWPX 내용과 HWPX 글자 서식·메모를 비교합니다. HWP 서식·메모, HWP 3.x·암호·DRM·배포용 문서는 지원하지 않습니다. 미리보기는 한컴 화면과 다를 수 있습니다.</p><p>파일당 20MB, 작업당 60초로 제한합니다. HWPX는 압축 해제 후 본문·서식 한 개 32MiB·합계 64MiB, 그림 한 개 64MiB·합계 192MiB까지 처리합니다. 큰 그림은 미리보기에서 생략될 수 있습니다. 문서 복잡도와 브라우저 메모리에 따라 더 작은 파일도 중단될 수 있습니다.</p></details></div>`)
   .replace('</body>', () => `${notices}\n<script id="document-worker" type="text/plain">${Buffer.from(workerSource).toString('base64')}</script>\n<script>${inline(app.outputFiles[0].text)}</script>\n</body>`);
 const output = resolve(root, process.argv[2] ?? 'artifacts/HWP-diff.html');
 await mkdir(dirname(output), { recursive: true });

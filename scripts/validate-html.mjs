@@ -13,6 +13,7 @@ import { previewTargets } from '../public/report.js';
 import { formatSamples } from '../tests/helpers/format-fixture.mjs';
 import { memoFixture } from '../tests/helpers/memo-fixture.mjs';
 import { hwpFixture } from '../tests/helpers/hwp-fixture.mjs';
+import { imageHeavyPair } from '../tests/helpers/image-heavy-fixture.mjs';
 
 // No server, browser security exceptions or downloads of browser binaries.
 const isolated = await mkdtemp(join(tmpdir(), 'hwp-diff-html-'));
@@ -25,10 +26,12 @@ const hwp = [{ name: '구버전.hwp', bytes: hwpFixture() }, { name: '신버전.
 const plainHwp = hwp.map((file, i) => ({ ...file, bytes: hwpFixture([`사업비는 ${500 + i}만원입니다.`], { compressed: false }) }));
 const formats = await formatSamples(), memos = await memoFixture();
 const mixed = [hwp[0], { name: '혼합.hwpx', bytes: new Uint8Array(await markdownToHwpx('사업비는 501만원입니다.')) }];
+const pictureHeavy = await imageHeavyPair();
 const cases = [
   ['hwpx-change', samples], ['hwpx-identical', [samples[0], samples[0]]],
   ['format', formats], ['memo', memos], ['hwp-compressed', hwp],
   ['hwp-uncompressed', plainHwp], ['hwp-identical', [hwp[0], hwp[0]]], ['mixed', mixed],
+  ['hwpx-9MiB-pictures', pictureHeavy],
 ];
 const baseline = new Map();
 const withoutTime = result => { const copy = structuredClone(result); delete copy.createdAt; return copy; };
