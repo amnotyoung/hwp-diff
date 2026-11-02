@@ -12,6 +12,8 @@
     "start": "node src/server.mjs",
     "test": "node --test",
     "samples": "node scripts/create-samples.mjs",
+    "build:html": "node scripts/build-html.mjs",
+    "test:html": "npm run build:html && node scripts/validate-html.mjs",
     "build:win": "node scripts/build-windows-exe.mjs",
     "build:mac": "node scripts/build-mac-dmg.mjs"
   },
@@ -19,5 +21,12 @@
     "@xmldom/xmldom": "0.9.12",
     "jszip": "3.10.1",
     "kordoc": "4.24.21"
+  },
+  "devDependencies": {
+    "buffer": "6.0.3",
+    "esbuild": "0.28.1",
+    "events": "3.3.0",
+    "pako": "2.1.0",
+    "playwright-core": "1.56.1"
   }
 }

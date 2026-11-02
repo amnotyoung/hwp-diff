@@ -1,0 +1,13 @@
+const unavailable = () => { throw new Error('이 문서의 기능은 HTML 버전에서 지원하지 않습니다. 암호·DRM·배포용 문서는 지원하지 않습니다.'); };
+export const readFile = unavailable, readFileSync = unavailable, execFileSync = unavailable;
+export const createHash = unavailable, createCipheriv = unavailable, createDecipheriv = unavailable;
+export const pbkdf2Sync = unavailable, timingSafeEqual = unavailable;
+export const existsSync = () => false;
+export const platform = () => 'browser';
+export const fileURLToPath = value => String(value ?? '');
+export const dirname = value => String(value).replace(/[/\\][^/\\]*$/, '');
+export const join = (...parts) => parts.join('/');
+export const isAbsolute = value => /^(?:[/\\]|[a-z]:)/i.test(value);
+export const format = (value, ...args) => [value, ...args].map(String).join(' ');
+export const parseImageDocument = unavailable, parsePdf = unavailable;
+export default unavailable;

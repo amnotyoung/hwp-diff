@@ -6,6 +6,7 @@
 
 ## 사용자 배포 파일
 
+- **단일 HTML (Windows Edge·Chrome):** `artifacts/HWP-diff.html` 한 파일을 복사해 직접 엽니다. EXE·Node.js·로컬 서버·인터넷 없이 기존 비교 화면을 사용합니다. 개발 PC에서 `npm run build:html`로 생성합니다. 실행 범위·한도·Windows 검증 기록은 [단일 HTML 안내](docs/browser-html.md)를 참고하세요. 이 파일은 아직 Releases에 게시하지 않았습니다.
 - **macOS (Apple Silicon):** `HWP diff (Apple Silicon).dmg`를 열고 `HWP diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
 - **Windows x64:** `HWP diff.exe` 한 파일을 실행합니다. 설치 과정은 없으며, 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
 - 두 버전 모두 로컬 전용 빈 포트를 자동으로 고릅니다. 화면의 **프로그램 종료**(첫 화면 상단, 결과 화면의 ⋯ 메뉴)를 누르거나 마지막 앱 탭을 닫으면 종료합니다. 탭을 닫은 경우 새로고침을 고려해 약 10초 뒤 종료합니다.
@@ -36,6 +37,8 @@
 ## 개발 실행
 
 **`public/index.html`을 직접 열지 마세요.** Windows에서는 `start-windows.cmd`를 실행하면 서버가 준비된 뒤 기본 브라우저에 실행 화면이 열립니다. HTML을 직접 열면 실행 방법 안내만 표시합니다.
+
+서버 없이 실행하려면 위의 **빌드된 `artifacts/HWP-diff.html`**을 사용합니다. 소스 화면인 `public/index.html`과 다른 파일입니다.
 
 Node.js 22 이상이 필요합니다. 인터넷이 되는 개발 PC에서 처음 한 번 설치합니다.
 
