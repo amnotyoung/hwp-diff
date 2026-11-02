@@ -36,3 +36,7 @@ node src/diagnostic-start.mjs --log /tmp/hancom-diff-startup.log
 ```
 
 실행 상태 창은 NSIS의 [상세 표시](https://nsis.sourceforge.io/Docs/Chapter4.html)와 [ExecToLog](https://nsis.sourceforge.io/NsExec_plug-in)를 사용합니다. Node가 시작하기 전 단계는 EXE가, 시작한 후 단계는 앱이 기록합니다. Node 자체가 로딩되지 못한 경우 OS 오류의 모든 상세가 로그에 기록된다고 보장하지 않습니다.
+
+## 빌드 캐시 위치
+
+동기화되는 작업 폴더에서 파일 준비가 느리면 `HWP_DIFF_BUILD_CACHE` 환경변수로 로컬 임시 폴더를 지정할 수 있습니다. 기본값은 프로젝트의 `.build-cache`이며, 완성된 EXE는 항상 프로젝트의 `dist`에 생성합니다. 오프라인 빌드는 지정한 캐시에 `packaging/inputs.json`의 Node·NSIS 원본 압축 파일을 미리 복사해 둬야 합니다. 체크섬 검증은 동일하게 수행합니다.

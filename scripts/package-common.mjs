@@ -1,11 +1,13 @@
 import { readFile, writeFile, mkdir, rm, cp, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { join, basename, relative } from 'node:path';
+import { join, basename, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
-export const cache = join(root, '.build-cache'), out = join(root, 'dist');
+// Allow a local scratch directory when a synced workspace makes staging slow.
+export const cache = process.env.HWP_DIFF_BUILD_CACHE ? resolve(process.env.HWP_DIFF_BUILD_CACHE) : join(root, '.build-cache');
+export const out = join(root, 'dist');
 export const inputs = JSON.parse(await readFile(join(root, 'packaging/inputs.json'), 'utf8'));
 export const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 export const hash = data => createHash('sha256').update(data).digest('hex');
