@@ -1,11 +1,11 @@
 Unicode true
-Name "한컴 diff"
+Name "HWP diff"
 OutFile "${OUTPUT_EXE}"
 RequestExecutionLevel user
 SilentInstall normal
 AutoCloseWindow false
 ShowInstDetails show
-Caption "한컴 diff - 실행 상태"
+Caption "HWP diff - 실행 상태"
 BrandingText " "
 Page instfiles
 Var StartupLog
@@ -13,8 +13,8 @@ Var LogHandle
 SetCompressor /SOLID lzma
 SetDatablockOptimize on
 VIProductVersion "${APP_QUAD_VERSION}"
-VIAddVersionKey "ProductName" "한컴 diff"
-VIAddVersionKey "FileDescription" "한컴 diff — 문서 비교"
+VIAddVersionKey "ProductName" "HWP diff"
+VIAddVersionKey "FileDescription" "HWP diff — 문서 비교"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"
 VIAddVersionKey "LegalCopyright" "Third-party notices are included in the application."
 
@@ -58,6 +58,6 @@ result:
   DetailPrint "내부 프로그램 종료 결과: $0"
   DetailPrint "시작 로그: $StartupLog"
   StrCmp $0 "0" done
-  MessageBox MB_OK|MB_ICONSTOP "한컴 diff를 실행하지 못했습니다. 결과: $0$\r$\n실행 상태 창과 시작 로그를 확인해 주세요.$\r$\n$StartupLog"
+  MessageBox MB_OK|MB_ICONSTOP "HWP diff를 실행하지 못했습니다. 결과: $0$\r$\n실행 상태 창과 시작 로그를 확인해 주세요.$\r$\n$StartupLog"
 done:
 SectionEnd

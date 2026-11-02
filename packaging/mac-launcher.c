@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
   args[0] = runtime; args[1] = entry;
   for (int i = 1; i < argc; i++) args[i + 1] = argv[i];
   execv(runtime, args);
-  perror("Hancom diff launcher");
+  perror("HWP diff launcher");
   free(args);
   return 1;
 }

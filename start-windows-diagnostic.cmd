@@ -8,7 +8,7 @@ if exist "runtime\node.exe" (
   set "HWP_DIFF_NODE=node"
 )
 set "HWP_DIFF_LOG=%TEMP%\hancom-diff-startup-%RANDOM%-%RANDOM%.log"
-echo 한컴 diff 실행 진단
+echo HWP diff 실행 진단
 echo 시작 로그: %HWP_DIFF_LOG%
 echo 브라우저가 열리지 않으면 server-ready 옆 주소를 Edge 또는 Chrome에 입력하세요.
 echo launcher-started>"%HWP_DIFF_LOG%"

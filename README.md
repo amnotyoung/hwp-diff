@@ -1,16 +1,37 @@
-# 한컴 diff · hwp-diff
+# HWP diff
 
-폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
+폐쇄망 PC에서 HWP·HWPX 두 문서를 비교하는 로컬 프로그램의 첫 버전입니다. 주식회사 한컴(한글과컴퓨터)과 관계없는 개인 프로젝트이며, HWP는 주식회사 한컴의 등록상표입니다. **LLM, API 키, 외부 서버가 필요하지 않습니다.** Kordoc으로 문서 구조를 읽고 규칙 기반으로 신구대조표를 만듭니다.
+
+![HWP diff 사용 설명 영상](./docs/hwp-diff-guide-50s.webp)
 
 ## 사용자 배포 파일
 
-- **macOS:** Mac의 칩( → 이 Mac에 관하여)에 맞는 DMG를 받습니다. Apple M1 이후는 `한컴 diff (Apple Silicon).dmg`, Intel 칩은 `한컴 diff (Intel).dmg`입니다. DMG를 열고 `한컴 diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. 칩별로 나눠 Apple Silicon용 앱에는 Intel 구성 요소가 없습니다.
-- **Windows x64:** `dist/한컴 diff.exe` 한 파일을 실행합니다(`npm run build:win`). 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
+- **macOS (Apple Silicon):** `HWP diff (Apple Silicon).dmg`를 열고 `HWP diff.app`을 Applications로 복사한 뒤 실행합니다. Node 런타임이 들어 있어 Node.js를 따로 설치하지 않습니다. 실행하면 기본 브라우저에 앱 화면이 열립니다. Intel Mac용은 배포하지 않습니다(필요하면 `packaging/inputs.json`의 `macArchives`에 x64 런타임을 추가해 빌드).
+- **Windows x64:** `HWP diff.exe` 한 파일을 실행합니다. 설치 과정은 없으며, 내부 파일은 임시 폴더에 풀리고 종료 시 정리됩니다.
 - 두 버전 모두 로컬 전용 빈 포트를 자동으로 고릅니다. 화면의 **프로그램 종료**(첫 화면 상단, 결과 화면의 ⋯ 메뉴)를 누르거나 마지막 앱 탭을 닫으면 종료합니다. 탭을 닫은 경우 새로고침을 고려해 약 10초 뒤 종료합니다.
-- 현재 빌드는 검증용이며 코드서명·공증 전입니다. 배포 파일은 GitHub 저장소의 Releases에서 받습니다.
-- **Mac 첫 실행:** 앱을 한 번 실행해 차단 안내가 뜨면 **시스템 설정 → 개인정보 보호 및 보안**에서 ‘한컴 diff’의 **그래도 열기**를 누릅니다. macOS 15 이후에는 Finder 우클릭 → 열기로는 열리지 않습니다.
-- **Windows 첫 실행:** “Windows의 PC 보호” 창이 뜨면 **추가 정보 → 실행**을 누릅니다. 회사 PC 정책이 서명 없는 실행 파일을 막으면 실행되지 않습니다.
-- 빌드한 Mac과 같은 칩의 DMG는 빌드 중 포함 런타임의 비교·렌더 실행을 검증합니다. 다른 칩용 DMG와 Windows EXE는 해당 기기에서 따로 확인해야 합니다.
+- 배포 파일은 GitHub 저장소의 Releases에서 받습니다. v0.1.0은 Windows PC와 Apple Silicon Mac에서 설치·실행을 확인했습니다. Apple Silicon DMG는 빌드할 때 포함 런타임의 비교·렌더 실행도 검증합니다.
+
+### 처음 실행할 때 (코드서명 전 빌드)
+
+코드서명과 Apple 공증을 받지 않은 빌드라, 처음 한 번은 Windows와 macOS가 실행을 막습니다. 아래 방법으로 한 번 허용하면 이후에는 바로 실행됩니다.
+
+**Windows**
+
+- 실행하기 전에 `HWP diff.exe`를 우클릭 → **속성** → 일반 탭 아래쪽의 **차단 해제**를 체크 → **확인**. 이후 경고 없이 실행됩니다.
+- 또는 파란 “Windows의 PC 보호” 화면에서 **추가 정보**를 누른 뒤 **실행**을 누릅니다.
+- 회사 PC 정책이 서명 없는 실행 파일을 막으면 두 방법 모두 동작하지 않습니다. 전산팀에 허용을 요청하세요.
+
+**Mac**
+
+1. `HWP diff.app`을 Applications로 옮긴 뒤 한 번 실행합니다. 차단 안내가 뜨면 **완료**를 눌러 닫습니다.
+2. **시스템 설정 → 개인정보 보호 및 보안**을 열고 아래쪽 ‘HWP diff’ 항목의 **그래도 열기**를 누른 뒤, 확인 창에서 **열기**를 누릅니다. macOS 15 이후에는 Finder 우클릭 → 열기로는 열리지 않습니다.
+3. **그래도 열기**가 보이지 않으면 터미널에서 아래 명령을 한 번 실행합니다. 인터넷에서 받은 파일에 붙는 격리 표시를 지웁니다.
+
+   ```sh
+   xattr -dr com.apple.quarantine "/Applications/HWP diff.app"
+   ```
+
+경고 없이 배포하려면 Mac은 Apple Developer ID 서명과 공증, Windows는 코드서명 인증서가 필요합니다. 회사 안에서만 쓴다면 사내 인증서 서명이나 허용 목록 등록도 방법입니다.
 
 ## 개발 실행
 
@@ -134,7 +155,7 @@ HWPX `charPr` 및 언어별 `fontRef`를 실제 글꼴 이름·색상·수치로
 - HWP 글상자 등의 본문이 파싱에는 포함되지만 Kordoc 미리보기에서 누락되는 경우가 있습니다. 비교 문구가 미리보기 텍스트에서 확인되지 않으면 문서 옆에 렌더링 경고를 표시합니다. 이는 누락을 복구하는 기능이나 완전성 보증이 아니며, 한컴 원본과의 대조가 필요합니다. 메모·서식 검사 불가는 `미검사`로 표시합니다.
 - 파일·안내·더보기·원본 안내 팝업은 바깥 클릭, Escape, 닫기 버튼으로 닫습니다. Escape는 먼저 열린 팝업을 닫고 원본 상세 패널은 유지합니다. 안내는 같은 원인을 반복하지 않고 영향과 다음 행동만 보여줍니다. 좌표·region·제외한 영역 수는 사용자 문구에서 제외했습니다. 문장은 [ASD-STE100 Issue 9의 짧고 명확한 문장 원칙](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)을 참고해 한국어로 정리했습니다.
 
-현재 배포 패키징은 보류 중입니다. 수정 화면은 `npm start`로 실행한 localhost에서 확인하며, DMG·EXE 재생성은 추후 진행합니다.
+2026-11-02 사용자 요청으로 Windows 진단 EXE 패키징을 재개했습니다. 실행 단계·접속 주소·시작 로그는 [Windows 실행 진단](docs/windows-startup-diagnostics.md)을 참고하세요. 이번 진단 빌드의 Windows 실기기 검증은 별도로 필요합니다.
 
 긴 셀의 내용은 양쪽에 공통으로 등장하는 고유한 소제목을 기준으로 문단 구간을 나눕니다. 내용 비교와 원본 상세에서 이전·다음 구간으로 이동하며, 원본에서는 현재 구간을 진하게, 나머지를 옅게 표시합니다. 원본에서 확인할 수 없는 위치는 임의로 다음 쪽에 배치하지 않습니다. 같은 제목이 고유하게 나타나는 삭제·추가 문단은 ‘대응 후보’로 연결해 나란히 볼 수 있으며, 원래의 변경 집계는 유지합니다. 제목이 중복되어 대응이 모호하면 자동 연결하지 않습니다.
 
@@ -153,4 +174,8 @@ Mac DMG는 macOS의 `clang`, `codesign`, `hdiutil`로 만듭니다. Windows EXE�
 
 빌드 도구와 중간 파일은 `.build-cache/`, 배포 파일은 `dist/`에 만들며 Git에서 제외합니다. 명시적 포함 목록(`src`, `public`, 고정된 JS 의존성, `package.json`, `package-lock.json`, `README.md`)만 앱에 넣으므로 문서·테스트·`.git`·`.env`·개발 산출물은 들어가지 않습니다. 네이티브 의존성이 발견되면 빌드를 중단합니다.
 
-포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-arm64-build-info.json`, `dist/mac-x64-build-info.json`, `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.
+포함 파일은 앱 안의 `BUILD-MANIFEST.json`, 버전·소스 커밋·체크섬·검증 범위는 `dist/mac-arm64-build-info.json`과 `dist/windows-build-info.json`에 기록합니다. `node src/portable.mjs --self-test`와 Mac 앱 실행 파일의 `--self-test`는 브라우저를 열지 않고 포함된 비교·렌더링·HTTP 경로를 검증합니다.
+
+## 라이선스
+
+[MIT](LICENSE). 함께 배포하는 의존성(Kordoc 등)과 Node.js·NSIS는 각자의 라이선스를 따르며, 배포 파일 안에 라이선스 문서를 포함합니다.

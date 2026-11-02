@@ -70,7 +70,7 @@ export async function preparePayload(target, extras = {}) {
   await rm(stage, { recursive: true, force: true }); await mkdir(stage, { recursive: true });
   // Explicit allowlist: no documents, tests, credentials, .git or prior artifacts.
   for (const path of ['src', 'public', 'node_modules']) await copyPayloadDirectory(join(root, path), join(stage, path));
-  for (const path of ['package.json', 'package-lock.json', 'README.md']) await copyFile(join(root, path), join(stage, path));
+  for (const path of ['package.json', 'package-lock.json', 'README.md', 'LICENSE']) await copyFile(join(root, path), join(stage, path));
   for (const [name, source] of Object.entries(extras)) await cp(source, join(stage, name));
   console.log('포함된 앱으로 문서 비교·렌더링 검증');
   command(process.execPath, ['--input-type=module', '-e', `
@@ -85,7 +85,7 @@ export async function preparePayload(target, extras = {}) {
   const entries = [];
   for (const path of (await filesUnder(stage)).sort()) entries.push({ path: relative(stage, path).replaceAll('\\', '/'), sha256: hash(await readFile(path)) });
   let revision = 'unknown'; try { revision = command('git', ['rev-parse', 'HEAD']).trim(); } catch {}
-  const manifest = { app: '한컴 diff', version: pkg.version, target, runtime: inputs.nodeVersion, revision, files: entries };
+  const manifest = { app: 'HWP diff', version: pkg.version, target, runtime: inputs.nodeVersion, revision, files: entries };
   await writeFile(join(stage, 'BUILD-MANIFEST.json'), JSON.stringify(manifest, null, 2));
   return { stage, manifest };
 }

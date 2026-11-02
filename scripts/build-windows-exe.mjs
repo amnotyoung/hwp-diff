@@ -14,7 +14,7 @@ await writeFile(nodePath, node); await writeFile(license, await zip.file(prefix 
 const { stage, manifest } = await preparePayload('win-x64', { 'NSIS-LICENSE.txt': join(tools, 'LICENSE') });
 const compiler = process.platform === 'win32' ? join(tools, 'windows', 'makensis.exe') : join(tools, process.platform === 'darwin' ? 'mac' : 'linux', process.arch, 'makensis');
 await lstat(compiler);
-const output = join(out, '한컴 diff.exe'), flag = process.platform === 'win32' ? '/' : '-';
+const output = join(out, 'HWP diff.exe'), flag = process.platform === 'win32' ? '/' : '-';
 console.log('Windows 단일 EXE 압축');
 // The script contains Korean text. Off Windows, makensis converts it through the
 // process locale, so an unset locale (C) fails with 'Bad text encoding'.
